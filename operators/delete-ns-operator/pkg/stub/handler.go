@@ -34,7 +34,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		fmt.Printf("Final List of Namespaces after default exclusion: %v\n", namespaces)
 		for name, timeCreated := range namespaces {
 			timeDiff := int(time.Now().Sub(timeCreated).Hours())
-			if timeDiff > o.Spec.OlderThan {
+			if timeDiff >= o.Spec.OlderThan {
 				deleteNs(name)
 			}
 		}
