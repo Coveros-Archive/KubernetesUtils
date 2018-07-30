@@ -1,0 +1,10 @@
+apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
+kind: "DeleteNs"
+metadata:
+  name: "delete-ns"
+spec:
+  OlderThan: 1
+  Excludes:
+    - default
+    - kube-system
+    - kube-public
