@@ -9,6 +9,7 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/sirupsen/logrus"
 )
 
 func NewHandler() sdk.Handler {
@@ -30,15 +31,15 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		namespaces := getNamespaces(nsListObj.Items, o.Spec.Excludes)
 
 		fmt.Println("---------------------------------------------------------------- BEGIN SCAN")
-		fmt.Printf("Default Excludes: %v \n", o.Spec.Excludes)
-		fmt.Printf("Final List of Namespaces after default exclusion: %v\n", namespaces)
+		logrus.Infof("Default Excludes: %v \n", o.Spec.Excludes)
+		logrus.Infof("Final List of Namespaces after default exclusion: %v\n", namespaces)
 		for name, timeCreated := range namespaces {
 			timeDiff := int(time.Now().Sub(timeCreated).Hours())
 			if timeDiff >= o.Spec.OlderThan {
 				deleteNs(name)
 			}
 		}
-		fmt.Printf("Namespaces older then %vhr will be deleted \n", o.Spec.OlderThan)
+		logrus.Infof("Namespaces older then %vhr will be deleted \n", o.Spec.OlderThan)
 		fmt.Println("------------------------------------------------------------------ END SCAN")
 		fmt.Printf("-\n")
 		fmt.Printf("-\n")
@@ -58,7 +59,7 @@ func deleteNs(namespace string) {
 			Name: namespace,
 		},
 	}
-	fmt.Printf("Deleting ns: %v\n", namespace)
+	logrus.Infof("Deleting ns: %v\n", namespace)
 	sdk.Delete(ns)
 }
 
