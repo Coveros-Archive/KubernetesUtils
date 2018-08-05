@@ -7,9 +7,9 @@ import (
 
 	"github.com/agill17/delete-ns-operator/pkg/apis/amritgill/v1alpha1"
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
+	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"github.com/sirupsen/logrus"
 )
 
 func NewHandler() sdk.Handler {
@@ -28,19 +28,21 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		if err != nil {
 			return fmt.Errorf("failed to list namespaces: %v", err)
 		}
-		namespaces := getNamespaces(nsListObj.Items, o.Spec.Excludes)
+		defaultExcludes := []string{"default", "kube-system", "kube-public"}
+		defaultExcludes = append(defaultExcludes, o.Spec.Excludes...)
+		namespaces := getNamespaces(nsListObj.Items, defaultExcludes...)
 
-		fmt.Println("---------------------------------------------------------------- BEGIN SCAN")
-		logrus.Infof("Default Excludes: %v \n", o.Spec.Excludes)
-		logrus.Infof("Final List of Namespaces after default exclusion: %v\n", namespaces)
+		logrus.Infof("---------------------------------------------------------------- BEGIN SCAN")
+		logrus.Infof("Default Excludes: %v", defaultExcludes)
+		logrus.Infof("Final List of Namespaces after default exclusion: %v", namespaces)
 		for name, timeCreated := range namespaces {
 			timeDiff := int(time.Now().Sub(timeCreated).Hours())
 			if timeDiff >= o.Spec.OlderThan {
 				deleteNs(name)
 			}
 		}
-		logrus.Infof("Namespaces older then %vhr will be deleted \n", o.Spec.OlderThan)
-		fmt.Println("------------------------------------------------------------------ END SCAN")
+		logrus.Infof("Namespaces older then %vhr will be deleted", o.Spec.OlderThan)
+		logrus.Infof("------------------------------------------------------------------ END SCAN")
 		fmt.Printf("-\n")
 		fmt.Printf("-\n")
 
@@ -59,7 +61,7 @@ func deleteNs(namespace string) {
 			Name: namespace,
 		},
 	}
-	logrus.Infof("Deleting ns: %v\n", namespace)
+	logrus.Infof("Deleting ns: %v", namespace)
 	sdk.Delete(ns)
 }
 
@@ -74,7 +76,7 @@ func getNsListObj() *v1.NamespaceList {
 }
 
 // returns map[namespaceName: CreationTime] after filtering out defaults
-func getNamespaces(ns []v1.Namespace, excludes []string) map[string]time.Time {
+func getNamespaces(ns []v1.Namespace, excludes ...string) map[string]time.Time {
 	nsMetadata := make(map[string]time.Time)
 	for _, v := range ns {
 		if !sliceContainsString(v.Name, excludes) {

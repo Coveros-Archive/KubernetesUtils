@@ -5,6 +5,4 @@ metadata:
 spec:
   OlderThan: 1
   Excludes:
-    - default
-    - kube-system
-    - kube-public
+    - ops
