@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 func listBuckets(region string) []string {
@@ -49,16 +50,23 @@ func sliceContainsString(whichValue string, whichSlice []string) bool {
 
 // Assumes empty the bucket and then delete it
 // Perhaps this can be parameterized
-func DeleteBucket(bucketName, region string) {
+func DeleteBucket(bucket, region string) {
 
 	os.Setenv("AWS_REGION", region)
-	bucket := bucketName
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(region)},
 	)
-	// Create S3 service client
-	if BucketExists(bucketName, region) {
+	if BucketExists(bucket, region) {
 		svc := s3.New(sess)
+		iter := s3manager.NewDeleteListIterator(svc, &s3.ListObjectsInput{
+			Bucket: aws.String(bucket),
+		})
+
+		if err := s3manager.NewBatchDeleteWithClient(svc).Delete(aws.BackgroundContext(), iter); err != nil {
+			exitErrorf("Unable to delete objects from bucket %q, %v", bucket, err)
+		}
+		fmt.Printf("Deleted object(s) from bucket: %s\n", bucket)
+
 		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
 			Bucket: aws.String(bucket),
 		})
@@ -76,7 +84,7 @@ func DeleteBucket(bucketName, region string) {
 		fmt.Printf("Bucket %q successfully deleted\n", bucket)
 
 	} else {
-		exitErrorf("ERROR!!! Deleting bucket", bucketName, "in", region, ": Bucket does not exist")
+		exitErrorf("ERROR!!! Deleting bucket", bucket, "in", region, ": Bucket does not exist")
 	}
 
 }
