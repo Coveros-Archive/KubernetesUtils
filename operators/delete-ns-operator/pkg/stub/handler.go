@@ -21,32 +21,31 @@ type Handler struct {
 }
 
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
-	switch o := event.Object.(type) {
-	case *v1alpha1.DeleteNs:
-		nsListObj := getNsListObj()
-		err := sdk.List("", nsListObj)
-		if err != nil {
-			return fmt.Errorf("failed to list namespaces: %v", err)
-		}
-		defaultExcludes := []string{"default", "kube-system", "kube-public"}
-		defaultExcludes = append(defaultExcludes, o.Spec.Excludes...)
-		namespaces := getNamespaces(nsListObj.Items, defaultExcludes...)
+	availObjs := event.Object.(*v1alpha1.DeleteNs)
 
-		logrus.Infof("---------------------------------------------------------------- BEGIN SCAN")
-		logrus.Infof("Default Excludes: %v", defaultExcludes)
-		logrus.Infof("Final List of Namespaces after default exclusion: %v", namespaces)
-		for name, timeCreated := range namespaces {
-			timeDiff := int(time.Now().Sub(timeCreated).Hours())
-			if timeDiff >= o.Spec.OlderThan {
-				deleteNs(name)
-			}
-		}
-		logrus.Infof("Namespaces older then %vhr will be deleted", o.Spec.OlderThan)
-		logrus.Infof("------------------------------------------------------------------ END SCAN")
-		fmt.Printf("-\n")
-		fmt.Printf("-\n")
-
+	nsListObj := getNsListObj()
+	err := sdk.List("", nsListObj)
+	if err != nil {
+		return fmt.Errorf("failed to list namespaces: %v", err)
 	}
+	defaultExcludes := []string{"default", "kube-system", "kube-public"}
+	defaultExcludes = append(defaultExcludes, availObjs.Spec.Excludes...)
+	namespaces := getNamespaces(nsListObj.Items, defaultExcludes...)
+
+	logrus.Infof("---------------------------------------------------------------- BEGIN SCAN")
+	logrus.Infof("Default Excludes: %v", defaultExcludes)
+	logrus.Infof("Final List of Namespaces after default exclusion: %v", namespaces)
+	for name, timeCreated := range namespaces {
+		timeDiff := int(time.Now().Sub(timeCreated).Hours())
+		if timeDiff >= availObjs.Spec.OlderThan {
+			deleteNs(name)
+		}
+	}
+	logrus.Infof("Namespaces older then %vhr will be deleted", availObjs.Spec.OlderThan)
+	logrus.Infof("------------------------------------------------------------------ END SCAN")
+	fmt.Printf("-\n")
+	fmt.Printf("-\n")
+
 	return nil
 
 }
@@ -77,7 +76,7 @@ func getNsListObj() *v1.NamespaceList {
 
 // returns map[namespaceName: CreationTime] after filtering out defaults
 func getNamespaces(ns []v1.Namespace, excludes ...string) map[string]time.Time {
-	nsMetadata := make(map[string]time.Time)
+	nsMetadata := map[string]time.Time{}
 	for _, v := range ns {
 		if !sliceContainsString(v.Name, excludes) {
 			nsMetadata[v.Name] = v.CreationTimestamp.Time
