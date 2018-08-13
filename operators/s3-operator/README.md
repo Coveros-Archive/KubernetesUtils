@@ -11,4 +11,6 @@
 
 ## TODO
 
-#### 1. S3 sync
+##### 1. S3 sync
+##### 2. Use labels to tag buckets ( add namespace )
+##### 3. Allow more configuration options but default to something ( storageType, versioned, Bucket ACL, etc )
