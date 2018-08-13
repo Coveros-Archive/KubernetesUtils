@@ -5,7 +5,7 @@
   ```
   
   ### Note: 
-  1. If namespace CR was deployed in is deleted, the s3 bucket gets deleted.
+  1. If the namespace in which CR was deployed in is deleted, the s3 bucket gets deleted.
   2. If the CR from the namespace is deleted, the s3 bucket gets deleted
 ----
 
