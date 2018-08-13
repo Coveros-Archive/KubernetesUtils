@@ -1,18 +1,15 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: amrit
+  name: amrit-gill
 ---
 apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
 kind: "S3"
 metadata:
   name: s3
-  namespace: amrit
+  namespace: amrit-gill
 s3Specs:
-  bucketName: amritcsdasidgasidgasiksdc
+  bucketName: iksjgudamritcsdsdgasidgasiksdc
   # syncWith: 
   #   s3Bucket: copyFromBucket
   region: us-east-1
-  labels:
-    name: S3Bucket
-    tier: data

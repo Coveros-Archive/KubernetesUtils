@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: s3-operator
-  namespace: ops
 spec:
   replicas: 1
   selector:
@@ -13,7 +12,6 @@ spec:
       labels:
         name: s3-operator
     spec:
-      serviceAccountName: s3-operator
       containers:
         - name: s3-operator
           image: agill17/s3-operator

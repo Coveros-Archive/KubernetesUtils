@@ -46,7 +46,7 @@ type SyncWith struct {
 }
 
 type S3Status struct {
-	Created bool
+	Deployed bool
 }
 
 type S3Spec struct {

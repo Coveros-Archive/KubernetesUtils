@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -50,7 +48,7 @@ func sliceContainsString(whichValue string, whichSlice []string) bool {
 
 // Assumes empty the bucket and then delete it
 // Perhaps this can be parameterized
-func DeleteBucket(bucket, region string) {
+func DeleteBucket(bucket, region, ns string) {
 
 	os.Setenv("AWS_REGION", region)
 	sess, err := session.NewSession(&aws.Config{
@@ -81,7 +79,7 @@ func DeleteBucket(bucket, region string) {
 		if err != nil {
 			exitErrorf("Error occurred while waiting for bucket to be deleted, %v", bucket)
 		}
-		fmt.Printf("Bucket %q successfully deleted\n", bucket)
+		fmt.Printf("Bucket %q successfully deleted for namespace: %v\n", bucket, ns)
 
 	} else {
 		exitErrorf("ERROR!!! Deleting bucket", bucket, "in", region, ": Bucket does not exist")
@@ -89,7 +87,7 @@ func DeleteBucket(bucket, region string) {
 
 }
 
-func CreateBucket(bucketName, region, synWith string, tags map[string]string) {
+func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string) {
 
 	os.Setenv("AWS_REGION", region)
 	bucket := bucketName
@@ -102,7 +100,6 @@ func CreateBucket(bucketName, region, synWith string, tags map[string]string) {
 
 	// Create the S3 Bucket
 	if !BucketExists(bucketName, region) {
-		logrus.Infof("Creating Bucket...")
 		_, err = svc.CreateBucket(&s3.CreateBucketInput{
 			Bucket: aws.String(bucket),
 		})
@@ -117,7 +114,7 @@ func CreateBucket(bucketName, region, synWith string, tags map[string]string) {
 		if err != nil {
 			exitErrorf("Error occurred while waiting for bucket to be created, %v", bucket)
 		}
-		fmt.Printf("Bucket %q successfully created\n", bucket)
+		fmt.Printf("Bucket %q successfully created\n for namespace: %v", bucket, ns)
 	} else {
 		exitErrorf("ERROR!!! Creating bucket:", bucketName, "in", region, ": Bucket ALREADY exist")
 	}

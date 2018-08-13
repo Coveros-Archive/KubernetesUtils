@@ -32,19 +32,26 @@ type Handler struct {
 
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	s3 := event.Object.(*v1alpha1.S3)
-	// this call costs money..... i need to use status keys per cr.
-	if !BucketExists(s3.S3Specs.BucketName, s3.S3Specs.Region) {
-		fmt.Println(s3.S3Specs.BucketName, "bucket does not exists for ")
+	ns := s3.GetNamespace
+
+	if s3.Status.Deployed != true {
+		fmt.Println(s3.S3Specs.BucketName, "bucket does not exists for ", ns())
 		CreateBucket(
 			s3.S3Specs.BucketName,
 			s3.S3Specs.Region,
 			s3.S3Specs.SyncWith.BucketName,
+			ns(),
 			s3.S3Specs.Labels,
 		)
+		s3.Status.Deployed = true
+		err := sdk.Update(s3)
+		if err != nil {
+			return fmt.Errorf("failed to update s3 status: %v", err)
+		}
 	}
 
 	if event.Deleted {
-		DeleteBucket(s3.S3Specs.BucketName, s3.S3Specs.Region)
+		DeleteBucket(s3.S3Specs.BucketName, s3.S3Specs.Region, ns())
 	}
 
 	return nil
