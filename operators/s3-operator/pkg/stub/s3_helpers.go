@@ -2,23 +2,17 @@ package stub
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-func listBuckets(region string) []string {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(region)},
-	)
+func listBuckets(region string, svc *s3.S3) []string {
 	allBuckets := []string{}
-	svc := s3.New(sess)
 	result, err := svc.ListBuckets(&s3.ListBucketsInput{})
 	if err != nil {
 		logrus.Errorf("Failed to list buckets", err)
@@ -29,9 +23,9 @@ func listBuckets(region string) []string {
 	return allBuckets
 }
 
-func BucketExists(bucketName, region string) bool {
+func BucketExists(bucketName, region string, svc *s3.S3) bool {
 	exists := false
-	availBuckets := listBuckets(region)
+	availBuckets := listBuckets(region, svc)
 	if sliceContainsString(bucketName, availBuckets) {
 		exists = true
 	}
@@ -51,14 +45,9 @@ func sliceContainsString(whichValue string, whichSlice []string) bool {
 
 // Assumes empty the bucket and then delete it
 // Perhaps this can be parameterized
-func DeleteBucket(bucket, region, ns string) {
+func DeleteBucket(bucket, region, ns string, svc *s3.S3) {
 
-	os.Setenv("AWS_REGION", region)
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(region)},
-	)
-	if BucketExists(bucket, region) {
-		svc := s3.New(sess)
+	if BucketExists(bucket, region, svc) {
 		iter := s3manager.NewDeleteListIterator(svc, &s3.ListObjectsInput{
 			Bucket: aws.String(bucket),
 		})
@@ -68,7 +57,7 @@ func DeleteBucket(bucket, region, ns string) {
 		}
 		logrus.Infof("Deleted object(s) from bucket: %s", bucket)
 
-		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
+		_, err := svc.DeleteBucket(&s3.DeleteBucketInput{
 			Bucket: aws.String(bucket),
 		})
 		if err != nil {
@@ -90,21 +79,16 @@ func DeleteBucket(bucket, region, ns string) {
 
 }
 
-func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string) error {
+func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string, svc *s3.S3) error {
 
-	os.Setenv("AWS_REGION", region)
 	bucket := bucketName
-
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(region)},
-	)
-	svc := s3.New(sess)
 	t := []*s3.Tag{}
 	for k, v := range tags {
 		t = append(t, &s3.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
+	var err error
 	// Create the S3 Bucket
-	if !BucketExists(bucketName, region) {
+	if !BucketExists(bucketName, region, svc) {
 		_, err = svc.CreateBucket(&s3.CreateBucketInput{
 			Bucket: aws.String(bucket),
 		})
@@ -118,7 +102,7 @@ func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string
 			if err != nil {
 				logrus.Errorf("Error occurred while waiting for bucket to be created, %v", bucket)
 			} else {
-				addTagsToS3Bucket(bucket, t)
+				addTagsToS3Bucket(bucket, t, svc)
 				logrus.Infof("%v bucket successfully created for namespace: %v", bucket, ns)
 			}
 		}
@@ -129,13 +113,12 @@ func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string
 	return err
 }
 
-func SyncBucketWith(newBucket, oldBucket, region string) {
+func SyncBucketWith(newBucket, oldBucket, region string, svc *s3.S3) {
 	// sync
 	// cross account? or same account ? or both ( ideal? )
 }
 
-func addTagsToS3Bucket(whichBucket string, tags []*s3.Tag) error {
-	svc := s3.New(session.New())
+func addTagsToS3Bucket(whichBucket string, tags []*s3.Tag, svc *s3.S3) error {
 	tagInput := &s3.PutBucketTaggingInput{
 		Bucket: &whichBucket,
 		Tagging: &s3.Tagging{

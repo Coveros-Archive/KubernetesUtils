@@ -1,15 +1,64 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: amrit-gill
+  name: amrit-one
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amrit-two
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amrit-three
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amrit-four
+---
+
+apiVersion: amritgill.alpha.coveros.com/v1alpha1
+kind: S3
+metadata:
+  name: my-s3-bucket-one
+  namespace: amrit-one
+  labels:
+    app: yourAppName
+s3Specs:
+  bucketName: amrit-one-test-bucket
+  region: us-east-1
 ---
 apiVersion: amritgill.alpha.coveros.com/v1alpha1
 kind: S3
 metadata:
-  name: my-s3-bucket
-  namespace: amrit-gill
+  name: my-s3-bucket-two
+  namespace: amrit-two
   labels:
-    app: acadia
+    app: yourAppName
 s3Specs:
-  bucketName: amrit-gill-test-bucket
+  bucketName: amrit-two-test-bucket
+  region: us-east-1
+---
+apiVersion: amritgill.alpha.coveros.com/v1alpha1
+kind: S3
+metadata:
+  name: my-s3-bucket-three
+  namespace: amrit-three
+  labels:
+    app: yourAppName
+s3Specs:
+  bucketName: amrit-three-test-bucket
+  region: us-east-1
+---
+apiVersion: amritgill.alpha.coveros.com/v1alpha1
+kind: S3
+metadata:
+  name: my-s3-bucket-four
+  namespace: amrit-four
+  labels:
+    app: yourAppName
+s3Specs:
+  bucketName: amrit-four-test-bucket-two
   region: us-east-1

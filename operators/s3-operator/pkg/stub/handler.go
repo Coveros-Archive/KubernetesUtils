@@ -3,7 +3,11 @@ package stub
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/sirupsen/logrus"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
@@ -18,27 +22,39 @@ type Handler struct {
 	// Fill me
 }
 
+func getS3SvcSetup(region string) *s3.S3 {
+	sess, _ := session.NewSession(&aws.Config{
+		Region: aws.String(region)},
+	)
+	svc := s3.New(sess)
+	return svc
+}
+
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
-	s3 := event.Object.(*v1alpha1.S3)
-	ns := s3.GetNamespace
-	metdataLabels := s3.ObjectMeta.GetLabels()
+	objectStore := event.Object.(*v1alpha1.S3)
+	ns := objectStore.GetNamespace
+	svc := getS3SvcSetup(objectStore.S3Specs.Region)
+	os.Setenv("AWS_REGION", objectStore.S3Specs.Region)
+
+	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns()
 	}
-	if s3.Status.Deployed != true {
-		logrus.Infof("Creating %v bucket in %v for namespace: ", s3.S3Specs.BucketName, s3.S3Specs.Region, ns())
+	if objectStore.Status.Deployed != true {
+		logrus.Infof("Creating %v bucket in %v for namespace: %v", objectStore.S3Specs.BucketName, objectStore.S3Specs.Region, ns())
 		err := CreateBucket(
-			s3.S3Specs.BucketName,
-			s3.S3Specs.Region,
-			s3.S3Specs.SyncWith.BucketName,
+			objectStore.S3Specs.BucketName,
+			objectStore.S3Specs.Region,
+			objectStore.S3Specs.SyncWith.BucketName,
 			ns(),
 			metdataLabels,
+			svc,
 		)
 		if err != nil {
 			logrus.Errorf("Something failed while creating the s3 bucket for namespace: ", ns)
 		} else {
-			s3.Status.Deployed = true
-			err := sdk.Update(s3)
+			objectStore.Status.Deployed = true
+			err := sdk.Update(objectStore)
 			if err != nil {
 				return fmt.Errorf("failed to update s3 status: %v", err)
 			}
@@ -46,7 +62,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	}
 
 	if event.Deleted {
-		DeleteBucket(s3.S3Specs.BucketName, s3.S3Specs.Region, ns())
+		DeleteBucket(objectStore.S3Specs.BucketName, objectStore.S3Specs.Region, ns(), svc)
 	}
 
 	return nil

@@ -5,10 +5,10 @@
   ```
   
   ### Note: 
-  1. If the namespace in which CR was deployed in is deleted, the s3 bucket gets deleted.
+  1. If namespace CR was deployed in is deleted, the s3 bucket gets deleted.
   2. If the CR from the namespace is deleted, the s3 bucket gets deleted
 ----
 
 ## TODO
-##### 1. S3 sync
-##### 3. Allow more configuration options but default to something ( storageType, versioned, Bucket ACL, etc )
+
+#### 1. S3 sync
