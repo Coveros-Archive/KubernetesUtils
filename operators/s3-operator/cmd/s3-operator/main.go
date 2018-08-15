@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"runtime"
+	"strconv"
+	"syscall"
 
 	stub "github.com/agill17/s3-operator/pkg/stub"
 	sdk "github.com/operator-framework/operator-sdk/pkg/sdk"
@@ -17,6 +19,11 @@ func printVersion() {
 	logrus.Infof("operator-sdk Version: %v", sdkVersion.Version)
 }
 
+const (
+	// seconds
+	defaultResyncPeriod = 5
+)
+
 func main() {
 	printVersion()
 
@@ -24,11 +31,10 @@ func main() {
 
 	resource := "amritgill.alpha.coveros.com/v1alpha1"
 	kind := "S3"
-	// // namespace, err := k8sutil.GetWatchNamespace()
-	// if err != nil {
-	// 	logrus.Fatalf("Failed to get watch namespace: %v", err)
-	// }
-	resyncPeriod := 5
+	var resyncPeriod = defaultResyncPeriod
+	if pollTime, exists := syscall.Getenv("RESYNC_PERIOD"); exists {
+		resyncPeriod, _ = strconv.Atoi(pollTime)
+	}
 	logrus.Infof("Watching %s, %s, %s, %d", resource, kind, "", resyncPeriod)
 	sdk.Watch(resource, kind, "", resyncPeriod)
 	sdk.Handle(stub.NewHandler())

@@ -3,13 +3,13 @@ kind: Namespace
 metadata:
   name: amrit-gill
 ---
-apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
-kind: "S3"
+apiVersion: amritgill.alpha.coveros.com/v1alpha1
+kind: S3
 metadata:
-  name: s3
+  name: my-s3-bucket
   namespace: amrit-gill
+  labels:
+    app: acadia
 s3Specs:
-  bucketName: iksjgudamritcsdsdgasidgasiksdc
-  # syncWith: 
-  #   s3Bucket: copyFromBucket
+  bucketName: amrit-gill-test-bucket
   region: us-east-1

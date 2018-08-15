@@ -24,10 +24,9 @@ type S3 struct {
 }
 
 type S3BucketSpecs struct {
-	BucketName string            `json:",bucketName"`
-	SyncWith   SyncWith          `json:",syncWith"`
-	Region     string            `json:",region"`
-	Labels     map[string]string `json:",labels"`
+	BucketName string   `json:",bucketName"`
+	SyncWith   SyncWith `json:",syncWith"`
+	Region     string   `json:",region"`
 }
 
 type MinioBucketSpecs struct {
