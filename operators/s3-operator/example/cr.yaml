@@ -9,7 +9,7 @@ metadata:
   name: my-s3-bucket
   namespace: amrit-gill
   labels:
-    app: acadia
+    app: yourAppName
 s3Specs:
   bucketName: amrit-gill-test-bucket
   region: us-east-1
