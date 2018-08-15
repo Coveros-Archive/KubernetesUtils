@@ -1,4 +1,5 @@
 # Deploying to cluster
+#### Assuming your master + node IAM roles have s3 access policies then,
   ```
   1. kubectl apply -f example/operator.yaml
   2. kubectl apply -f example/cr.yaml
