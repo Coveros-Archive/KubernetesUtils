@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/sirupsen/logrus"
-
-	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
+	"github.com/sirupsen/logrus"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewHandler() sdk.Handler {
@@ -33,37 +34,65 @@ func getS3SvcSetup(region string) *s3.S3 {
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	objectStore := event.Object.(*v1alpha1.S3)
 	ns := objectStore.GetNamespace
-	svc := getS3SvcSetup(objectStore.S3Specs.Region)
-	os.Setenv("AWS_REGION", objectStore.S3Specs.Region)
-
+	s3Svc := getS3SvcSetup(objectStore.S3Specs.Region)
+	bucket := objectStore.S3Specs.BucketName
+	region := objectStore.S3Specs.Region
+	syncWith := objectStore.S3Specs.SyncWith.BucketName
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns()
 	}
+
+	os.Setenv("AWS_REGION", region)
+
 	if objectStore.Status.Deployed != true {
-		logrus.Infof("Creating %v bucket in %v for namespace: %v", objectStore.S3Specs.BucketName, objectStore.S3Specs.Region, ns())
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating Bucket ", ns(), bucket)
 		err := CreateBucket(
-			objectStore.S3Specs.BucketName,
-			objectStore.S3Specs.Region,
-			objectStore.S3Specs.SyncWith.BucketName,
-			ns(),
-			metdataLabels,
-			svc,
+			bucket, region,
+			syncWith, ns(),
+			metdataLabels, s3Svc,
 		)
 		if err != nil {
-			logrus.Errorf("Something failed while creating the s3 bucket for namespace: ", ns)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while creating bucket ", ns(), bucket, err)
 		} else {
 			objectStore.Status.Deployed = true
 			err := sdk.Update(objectStore)
 			if err != nil {
-				return fmt.Errorf("failed to update s3 status: %v", err)
+				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update bucket status ", ns(), bucket, err)
+			}
+			assumedURL := fmt.Sprintf("%v.%v.amazonaws.com", bucket, region)
+			externalSvc := createExternalService("s3", ns(), assumedURL, metdataLabels)
+			err = sdk.Create(externalSvc)
+			if err != nil {
+				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to create externalName service %v", ns(), bucket, err)
+			} else {
+				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Created externalName service ", ns(), bucket)
 			}
 		}
 	}
 
 	if event.Deleted {
-		DeleteBucket(objectStore.S3Specs.BucketName, objectStore.S3Specs.Region, ns(), svc)
+		DeleteBucket(bucket, region, ns(), s3Svc)
 	}
 
 	return nil
+}
+
+func createExternalService(name, ns, endpoint string, labels map[string]string) *v1.Service {
+	s := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+			Labels:    labels,
+		},
+		Spec: v1.ServiceSpec{
+			Type:         "ExternalName",
+			ExternalName: endpoint,
+		},
+	}
+	return s
 }

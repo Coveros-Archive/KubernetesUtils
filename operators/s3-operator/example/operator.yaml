@@ -47,12 +47,6 @@ rules:
   - "*"
   verbs:
   - "*"
-- apiGroups:
-  - rook.io
-  resources:
-  - "*"
-  verbs:
-  - "*"
 ---
 apiVersion: v1
 kind: ServiceAccount

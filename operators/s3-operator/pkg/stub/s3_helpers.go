@@ -51,32 +51,31 @@ func DeleteBucket(bucket, region, ns string, svc *s3.S3) {
 		iter := s3manager.NewDeleteListIterator(svc, &s3.ListObjectsInput{
 			Bucket: aws.String(bucket),
 		})
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleting all objects ", ns, bucket)
 
 		if err := s3manager.NewBatchDeleteWithClient(svc).Delete(aws.BackgroundContext(), iter); err != nil {
-			logrus.Errorf("Unable to delete objects from bucket %q, %v", bucket, err)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete objects %v", ns, bucket, err)
 		}
-		logrus.Infof("Deleted object(s) from bucket: %s", bucket)
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleted all objects ", ns, bucket)
 
 		_, err := svc.DeleteBucket(&s3.DeleteBucketInput{
 			Bucket: aws.String(bucket),
 		})
 		if err != nil {
-			logrus.Errorf("Unable to delete %v bucket for namespace %v. Error --, %v", bucket, ns, err)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete bucket %v", ns, bucket, err)
 		}
-		logrus.Infof("Waiting for %v bucket to be deleted...", bucket)
 
 		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
 			Bucket: aws.String(bucket),
 		})
 		if err != nil {
-			logrus.Errorf("Error occurred while waiting for bucket to be deleted, %v", bucket)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while deleting bucket %v", ns, bucket, err)
 		}
-		logrus.Infof("Bucket %v in region %v successfully deleted for namespace: %v", bucket, region, ns)
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket Deleted ", ns, bucket)
 
 	} else {
-		logrus.Errorf("ERROR!!! Deleting bucket", bucket, "in", region, ": Bucket does not exist")
+		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket does not exist while deleting %v", ns, bucket)
 	}
-
 }
 
 func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string, svc *s3.S3) error {
@@ -93,22 +92,20 @@ func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string
 			Bucket: aws.String(bucket),
 		})
 		if err != nil {
-			logrus.Errorf("Unable to create %v bucket. Error was returned --, %v", bucket, err)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to create bucket %v", ns, bucket, err)
 		} else {
-			logrus.Infof("Waiting for %v bucket to be created...", bucket)
 			err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
 				Bucket: aws.String(bucket),
 			})
 			if err != nil {
-				logrus.Errorf("Error occurred while waiting for bucket to be created, %v", bucket)
+				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error occured while bucket creation %v", ns, bucket, err)
 			} else {
 				addTagsToS3Bucket(bucket, t, svc)
-				logrus.Infof("%v bucket successfully created for namespace: %v", bucket, ns)
+				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket created successfully", ns, bucket)
 			}
 		}
 	} else {
-		msg := fmt.Sprint("ERROR!!! Creating bucket:", bucketName, "in", region, ": Bucket ALREADY exist")
-		logrus.Errorf(msg)
+		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket already exists", ns, bucket)
 	}
 	return err
 }
