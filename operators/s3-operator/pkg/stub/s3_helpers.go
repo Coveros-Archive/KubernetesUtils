@@ -78,7 +78,7 @@ func DeleteBucket(bucket, region, ns string, svc *s3.S3) {
 	}
 }
 
-func CreateBucket(bucketName, region, synWith, ns string, tags map[string]string, svc *s3.S3) error {
+func CreateBucket(bucketName, region, ns string, tags map[string]string, svc *s3.S3) error {
 
 	bucket := bucketName
 	t := []*s3.Tag{}

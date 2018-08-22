@@ -37,7 +37,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	s3Svc := getS3SvcSetup(objectStore.S3Specs.Region)
 	bucket := objectStore.S3Specs.BucketName
 	region := objectStore.S3Specs.Region
-	syncWith := objectStore.S3Specs.SyncWith.BucketName
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns()
@@ -48,8 +47,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	if objectStore.Status.Deployed != true {
 		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating Bucket ", ns(), bucket)
 		err := CreateBucket(
-			bucket, region,
-			syncWith, ns(),
+			bucket, region, ns(),
 			metdataLabels, s3Svc,
 		)
 		if err != nil {
