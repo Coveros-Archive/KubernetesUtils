@@ -102,3 +102,13 @@ spec:
               value: "s3-operator"
             - name: RESYNC_PERIOD
               value: "12"
+            - name: AWS_ACCESS
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_ACCESS
+            - name: AWS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_SECRET

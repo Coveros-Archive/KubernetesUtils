@@ -43,7 +43,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	}
 
 	os.Setenv("AWS_REGION", region)
-
 	if objectStore.Status.Deployed != true {
 		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating Bucket ", ns(), bucket)
 		err := CreateBucket(
