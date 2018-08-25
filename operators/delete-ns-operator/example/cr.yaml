@@ -1,0 +1,11 @@
+apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
+kind: "DeleteNs"
+metadata:
+  name: "delete-ns"
+  namespace: operator
+spec:
+  filterByAnnotation:
+    key: permanent
+    value: "false"
+  olderThan: 2
+  dryRun: true
