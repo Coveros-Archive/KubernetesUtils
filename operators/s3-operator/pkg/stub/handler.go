@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
+
+	b64 "encoding/base64"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
 	"github.com/aws/aws-sdk-go/aws"
@@ -33,10 +36,15 @@ func getS3SvcSetup(region string) *s3.S3 {
 
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	objectStore := event.Object.(*v1alpha1.S3)
+
 	ns := objectStore.GetNamespace
 	s3Svc := getS3SvcSetup(objectStore.S3Specs.Region)
 	bucket := objectStore.S3Specs.BucketName
 	region := objectStore.S3Specs.Region
+
+	a, accessExists := syscall.Getenv("AWS_ACCESS_KEY_ID")
+	s, secretExists := syscall.Getenv("AWS_SECRET_ACCESS_KEY")
+
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns()
@@ -52,6 +60,22 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		if err != nil {
 			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while creating bucket ", ns(), bucket, err)
 		} else {
+
+			// should i create secrets ( well only if operator has them as env vars)
+			// since the operator automatically decodes the envs passed in operator.yaml
+			// encoding it back is a must
+			if accessExists && secretExists {
+				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating AWS Secrets ", ns(), bucket)
+				sdk.Create(
+					createAwsSecret(
+						"aws-creds", ns(),
+						metdataLabels,
+						[]byte(b64.StdEncoding.EncodeToString([]byte(a))),
+						[]byte(b64.StdEncoding.EncodeToString([]byte(s))),
+					),
+				)
+			}
+
 			objectStore.Status.Deployed = true
 			err := sdk.Update(objectStore)
 			if err != nil {
@@ -92,4 +116,23 @@ func createExternalService(name, ns, endpoint string, labels map[string]string) 
 		},
 	}
 	return s
+}
+
+func createAwsSecret(name, namespace string, labels map[string]string, accessID, secret []byte) *v1.Secret {
+	return &v1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Type: v1.SecretType("Opaque"),
+		Data: map[string][]byte{
+			"AWS_SECRET": secret,
+			"AWS_ACCESS": accessID,
+		},
+	}
 }
