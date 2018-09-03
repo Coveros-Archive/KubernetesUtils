@@ -2,10 +2,10 @@ apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
 kind: "DeleteNs"
 metadata:
   name: "delete-ns"
-  namespace: operator
+  namespace: ops
 spec:
-  filterByAnnotation:
-    key: permanent
-    value: "false"
-  olderThan: 2
+  saveIfAnnotationHas:
+    key: vibrenthealth/permanent
+    value: "true"
+  olderThan: 720
   dryRun: true

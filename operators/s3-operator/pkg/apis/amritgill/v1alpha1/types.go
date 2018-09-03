@@ -23,8 +23,9 @@ type S3 struct {
 }
 
 type S3BucketSpecs struct {
-	BucketName string `json:",bucketName"`
-	Region     string `json:",region"`
+	BucketName                   string `json:",bucketName"`
+	Region                       string `json:",region"`
+	CreateSameSecretFromOperator bool   `json:",createSameSecretFromOperator"`
 }
 
 type S3Status struct {

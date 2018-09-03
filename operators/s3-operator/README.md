@@ -1,5 +1,5 @@
 # Deploying to cluster
-#### Either create base64 encoded secrets in kubernetes for your AWS Credentials and pass to operator.yaml;
+#### Either create base64 encoded secrets in kubernetes for your AWS Credentials and pass to operator.yaml
 ### OR
 #### Apply s3 access policy to node's IAM role
   ```

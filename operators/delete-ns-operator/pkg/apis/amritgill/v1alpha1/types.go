@@ -22,11 +22,11 @@ type DeleteNs struct {
 }
 
 type DeleteNsSpec struct {
-	OlderThan     int                `json:"olderThan"`
-	DryRun        bool               `json:"dryRun"`
-	FilterByAnnot FilterByAnnotation `json:"filterByAnnotation"`
+	OlderThan           int                 `json:"olderThan"`
+	DryRun              bool                `json:"dryRun"`
+	SaveIfAnnotationHas SaveIfAnnotationHas `json:"saveIfAnnotationHas"`
 }
-type FilterByAnnotation struct {
+type SaveIfAnnotationHas struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }

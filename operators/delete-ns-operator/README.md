@@ -16,6 +16,8 @@
   - If the operator is not yet deployed;
     - Change the env variable RESYNC_PERIOD in example/operator.yaml
 
+---
 #### How the operator works and the available parameters
-  - olderThan (int) - This number tells the operator if some namespace is older than or equal to x number, delete it.
+  - saveIfAnnotationHas.key and saveIfAnnotationHas.value (string) - Exclude namesapces that have these key,val pair in their annotations.
+  - olderThan (int) - This number tells the operator if selected namespaces ( excluding the ones from above ) is older than or equal to x hours, delete it.
   - dryRun (bool) - Can be turned on to just see what will happen, no namespace will be deleted if this is set to true

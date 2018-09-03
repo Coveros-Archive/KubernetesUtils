@@ -42,9 +42,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	bucket := objectStore.S3Specs.BucketName
 	region := objectStore.S3Specs.Region
 
-	a, accessExists := syscall.Getenv("AWS_ACCESS_KEY_ID")
-	s, secretExists := syscall.Getenv("AWS_SECRET_ACCESS_KEY")
-
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns()
@@ -64,8 +61,10 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			// should i create secrets ( well only if operator has them as env vars)
 			// since the operator automatically decodes the envs passed in operator.yaml
 			// encoding it back is a must
-			if accessExists && secretExists {
-				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating AWS Secrets ", ns(), bucket)
+			a, accessExists := syscall.Getenv("AWS_ACCESS_KEY_ID")
+			s, secretExists := syscall.Getenv("AWS_SECRET_ACCESS_KEY")
+			if accessExists && secretExists && objectStore.S3Specs.CreateSameSecretFromOperator {
+				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Using operator.yaml env secrets to create new secrets for your namespace", ns(), bucket)
 				sdk.Create(
 					createAwsSecret(
 						"aws-creds", ns(),

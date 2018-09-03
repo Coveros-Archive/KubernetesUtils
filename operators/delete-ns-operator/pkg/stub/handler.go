@@ -27,13 +27,13 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to list n: %v", err)
 	}
-	annotKey := availObjs.Spec.FilterByAnnot.Key
-	annotVal := availObjs.Spec.FilterByAnnot.Value
+	annotKey := availObjs.Spec.SaveIfAnnotationHas.Key
+	annotVal := availObjs.Spec.SaveIfAnnotationHas.Value
 	if len(annotKey) == 0 || len(annotVal) == 0 {
-		err = fmt.Errorf("spec.filterByAnnotation.key and spec.filterByAnnotation.value cannot be empty!!!")
+		err = fmt.Errorf("spec.SaveIfAnnotationHas.key and spec.SaveIfAnnotationHas.value cannot be empty!!!")
 	} else {
 		filterAndDelete(nsListObj.Items, availObjs.Spec.OlderThan,
-			availObjs.Spec.DryRun, annotKey, annotVal)
+			availObjs.Spec.DryRun, annotKey, annotVal, availObjs.GetNamespace())
 	}
 
 	return err
@@ -63,20 +63,23 @@ func getNsListObj() *v1.NamespaceList {
 	return nsPointer
 }
 
-// sadly the kubernetes api does not have methods to filter by annotations or labels :(
-func filterAndDelete(ns []v1.Namespace, olderThan int, dryRun bool, annotKey, annotVal string) {
+func filterAndDelete(ns []v1.Namespace, olderThan int, dryRun bool, safeKey, safeVal, operatorNs string) {
 	logrus.Infof("-------------------------------B E G I N  S C A N---------------------------------")
-	logrus.Infof("Namespaces with annotation {%v: %v} AND older than %vhr(s) will be deleted", annotKey, annotVal, olderThan)
+	logrus.Infof("Namespaces older than %vhr(s) will be deleted", olderThan)
 	for _, ele := range ns {
 		timeDiff := int(time.Now().Sub(ele.CreationTimestamp.Time).Hours())
-		if ele.Annotations[annotKey] == annotVal && timeDiff >= olderThan {
-			logrus.Warnf("Namespace: %v | Current Age: %v | Policy Age: %v", ele.Name, timeDiff, olderThan)
-			if dryRun {
-				logrus.Infof("dryRun enabled: %v", dryRun)
-				logrus.Infof("No namesapce will be deleted")
-				logrus.Infof("Namespace: %v, would get deleted if dryRun was not enabled.", ele.Name)
-			} else {
-				deleteNs(ele.Name)
+		nsAnnotVal, nsAnnotKeyExists := ele.Annotations[safeKey]
+
+		if timeDiff >= olderThan && ele.Name != "default" && ele.Name != operatorNs && ele.Name != "kube-system" && ele.Name != "kube-public" {
+			if (!nsAnnotKeyExists) || (nsAnnotKeyExists && nsAnnotVal != safeVal) {
+				if dryRun {
+					logrus.Infof("dryRun enabled: %v", dryRun)
+					logrus.Infof("No namesapce will be deleted")
+					logrus.Infof("Namespace: %v, would get deleted if dryRun was not enabled.", ele.Name)
+				} else {
+					logrus.Warnf("Namespace: %v | Current Age: %v | Policy Age: %v", ele.Name, timeDiff, olderThan)
+					deleteNs(ele.Name)
+				}
 			}
 		}
 	}
