@@ -5,7 +5,7 @@ metadata:
   namespace: ops
 spec:
   saveIfAnnotationHas:
-    key: vibrenthealth/permanent
+    key: permanent
     value: "true"
   olderThan: 72
   dryRun: true
