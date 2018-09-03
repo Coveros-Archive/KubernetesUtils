@@ -7,5 +7,5 @@ spec:
   saveIfAnnotationHas:
     key: vibrenthealth/permanent
     value: "true"
-  olderThan: 720
+  olderThan: 72
   dryRun: true
