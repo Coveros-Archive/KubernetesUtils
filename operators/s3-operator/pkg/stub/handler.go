@@ -2,19 +2,18 @@ package stub
 
 import (
 	"context"
-	"fmt"
+	"encoding/base64"
 	"os"
-	"syscall"
-
-	b64 "encoding/base64"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -22,25 +21,38 @@ func NewHandler() sdk.Handler {
 	return &Handler{}
 }
 
+// NOTE:
+/*
+	b.c the handler runs in a loop, I had use this struct a way to store which ns was
+	deployed with which IAM accessKey. Now why save the accessKey and not the IAM username?
+	Well inorder to delete an IAM Username, we HAVE to delete the accessKey associated with that
+	IAM user first, then delete the user using username. Each time the loop runs, the IAM username is resolved
+	from the deployed CR ( aka the ns ), therefore I did not have to save the IAM username.
+	If an IAM user is deleted, the NsAccessKey map is updated by deleteing that ns key from the map.
+*/
 type Handler struct {
-	// Fill me
+	NsAccessKey map[string]string
 }
 
-func getS3SvcSetup(region string) *s3.S3 {
+func getSvcs(region string) (*s3.S3, *iam.IAM) {
 	sess, _ := session.NewSession(&aws.Config{
 		Region: aws.String(region)},
 	)
-	svc := s3.New(sess)
-	return svc
+	s3Client := s3.New(sess)
+	iamClient := iam.New(sess)
+	return s3Client, iamClient
 }
 
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	objectStore := event.Object.(*v1alpha1.S3)
 
 	ns := objectStore.GetNamespace
-	s3Svc := getS3SvcSetup(objectStore.S3Specs.Region)
+	s3Client, iamClient := getSvcs(objectStore.S3Specs.Region)
 	bucket := objectStore.S3Specs.BucketName
 	region := objectStore.S3Specs.Region
+	accessPolicy := objectStore.S3Specs.NewUser.Policy
+	secretName := objectStore.S3Specs.NewUser.SecretName
+	iamUserName := ns()
 
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
@@ -50,49 +62,56 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	os.Setenv("AWS_REGION", region)
 	if objectStore.Status.Deployed != true {
 		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Creating Bucket ", ns(), bucket)
+
+		// create new user if accessPolicy defined.
+		// Use accessKeys to create new secret.
+		if accessPolicy != "" {
+			accessKey, secretKey := CreateIAMWithKeys(iamUserName, region, accessPolicy, ns(), iamClient)
+
+			// init the map boi
+			if h.NsAccessKey == nil {
+				h.NsAccessKey = make(map[string]string)
+			}
+			h.NsAccessKey[ns()] = accessKey
+			logrus.Infof("Namespace: %v | IAM User: %v | Msg: Createing New Secrets", ns(), iamUserName)
+			sdk.Create(
+				createAwsSecret(
+					secretName, ns(),
+					metdataLabels,
+					[]byte(base64.StdEncoding.EncodeToString([]byte(accessKey))),
+					[]byte(base64.StdEncoding.EncodeToString([]byte(secretKey))),
+				),
+			)
+		}
+
+		// create the bucket
 		err := CreateBucket(
 			bucket, region, ns(),
-			metdataLabels, s3Svc,
+			metdataLabels, s3Client,
 		)
 		if err != nil {
 			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while creating bucket ", ns(), bucket, err)
-		} else {
-
-			// should i create secrets ( well only if operator has them as env vars)
-			// since the operator automatically decodes the envs passed in operator.yaml
-			// encoding it back is a must
-			a, accessExists := syscall.Getenv("AWS_ACCESS_KEY_ID")
-			s, secretExists := syscall.Getenv("AWS_SECRET_ACCESS_KEY")
-			if accessExists && secretExists && objectStore.S3Specs.CreateSameSecretFromOperator {
-				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Using operator.yaml env secrets to create new secrets for your namespace", ns(), bucket)
-				sdk.Create(
-					createAwsSecret(
-						"aws-creds", ns(),
-						metdataLabels,
-						[]byte(b64.StdEncoding.EncodeToString([]byte(a))),
-						[]byte(b64.StdEncoding.EncodeToString([]byte(s))),
-					),
-				)
-			}
-
-			objectStore.Status.Deployed = true
-			err := sdk.Update(objectStore)
-			if err != nil {
-				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update bucket status ", ns(), bucket, err)
-			}
-			assumedURL := fmt.Sprintf("%v.%v.amazonaws.com", bucket, region)
-			externalSvc := createExternalService("s3", ns(), assumedURL, metdataLabels)
-			err = sdk.Create(externalSvc)
-			if err != nil {
-				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to create externalName service %v", ns(), bucket, err)
-			} else {
-				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Created externalName service ", ns(), bucket)
-			}
 		}
+		objectStore.Status.Deployed = true
+		err = sdk.Update(objectStore)
+		if err != nil {
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update bucket status ", ns(), bucket, err)
+		}
+
 	}
 
 	if event.Deleted {
-		DeleteBucket(bucket, region, ns(), s3Svc)
+		if _, exists := h.NsAccessKey[ns()]; exists {
+			err := DeleteIamUser(iamUserName, ns(), h.NsAccessKey[ns()], iamClient)
+			if err != nil {
+				logrus.Errorf("ERROR! ", err)
+			}
+			delete(h.NsAccessKey, ns())
+		} else {
+			logrus.Errorf("ERROR ERROR ERROR !!! The ns %v accessKey for IAM user does not exist in operator's memory... check if user %v exists in IAM... Skipping deletion of IAM user.", ns(), iamUserName)
+		}
+
+		DeleteBucket(bucket, region, ns(), s3Client)
 	}
 
 	return nil

@@ -7,9 +7,47 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
+
+func CreateIAMWithKeys(name, region, readWritePolicyArn, ns string, iamClient *iam.IAM) (string, string) {
+	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Creating new user", ns, name)
+	_, err := iamClient.CreateUser(&iam.CreateUserInput{
+		UserName:            aws.String(name),
+		PermissionsBoundary: aws.String(readWritePolicyArn),
+	})
+	var accessKeyOutput *iam.CreateAccessKeyOutput
+	accessKeyOutput, err = iamClient.CreateAccessKey(&iam.CreateAccessKeyInput{
+		UserName: aws.String(name),
+	})
+	if err != nil {
+		logrus.Error(err)
+	}
+	accessKey := *accessKeyOutput.AccessKey.AccessKeyId
+	secretKey := *accessKeyOutput.AccessKey.SecretAccessKey
+	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Created new user successfully", ns, name)
+	return accessKey, secretKey
+}
+
+func DeleteIamUser(name, ns string, accessKeyId string, iamClient *iam.IAM) error {
+	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleting user", ns, name)
+	_, err := iamClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{
+		AccessKeyId: aws.String(accessKeyId),
+		UserName:    aws.String(name),
+	})
+
+	if err != nil {
+		logrus.Errorf("ERROR! %v", err)
+	}
+
+	_, err = iamClient.DeleteUser(&iam.DeleteUserInput{
+		UserName: aws.String(name),
+	})
+	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleted user successfully", ns, name)
+	return err
+}
 
 func listBuckets(region string, svc *s3.S3) []string {
 	allBuckets := []string{}
