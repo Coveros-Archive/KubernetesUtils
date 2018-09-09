@@ -34,7 +34,8 @@ type IamUser struct {
 }
 
 type S3Status struct {
-	Deployed bool
+	Deployed  bool
+	AccessKey string
 }
 
 type S3Spec struct {

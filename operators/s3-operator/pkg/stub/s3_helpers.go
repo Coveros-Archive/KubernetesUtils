@@ -15,8 +15,11 @@ import (
 func CreateIAMWithKeys(name, region, readWritePolicyArn, ns string, iamClient *iam.IAM) (string, string) {
 	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Creating new user", ns, name)
 	_, err := iamClient.CreateUser(&iam.CreateUserInput{
-		UserName:            aws.String(name),
-		PermissionsBoundary: aws.String(readWritePolicyArn),
+		UserName: aws.String(name),
+	})
+	_, err = iamClient.AttachUserPolicy(&iam.AttachUserPolicyInput{
+		PolicyArn: aws.String(readWritePolicyArn),
+		UserName:  aws.String(name),
 	})
 	var accessKeyOutput *iam.CreateAccessKeyOutput
 	accessKeyOutput, err = iamClient.CreateAccessKey(&iam.CreateAccessKeyInput{
@@ -31,9 +34,14 @@ func CreateIAMWithKeys(name, region, readWritePolicyArn, ns string, iamClient *i
 	return accessKey, secretKey
 }
 
-func DeleteIamUser(name, ns string, accessKeyId string, iamClient *iam.IAM) error {
+func DeleteIamUser(name, ns, readWritePolicyArn string, accessKeyId string, iamClient *iam.IAM) error {
 	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleting user", ns, name)
-	_, err := iamClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{
+
+	_, err := iamClient.DetachUserPolicy(&iam.DetachUserPolicyInput{
+		PolicyArn: aws.String(readWritePolicyArn),
+		UserName:  aws.String(name),
+	})
+	_, err = iamClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{
 		AccessKeyId: aws.String(accessKeyId),
 		UserName:    aws.String(name),
 	})

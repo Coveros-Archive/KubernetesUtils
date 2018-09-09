@@ -3,6 +3,7 @@ package stub
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
@@ -31,7 +32,6 @@ func NewHandler() sdk.Handler {
 	If an IAM user is deleted, the NsAccessKey map is updated by deleteing that ns key from the map.
 */
 type Handler struct {
-	NsAccessKey map[string]string
 }
 
 func getSvcs(region string) (*s3.S3, *iam.IAM) {
@@ -68,18 +68,16 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		if accessPolicy != "" {
 			accessKey, secretKey := CreateIAMWithKeys(iamUserName, region, accessPolicy, ns(), iamClient)
 
-			// init the map boi
-			if h.NsAccessKey == nil {
-				h.NsAccessKey = make(map[string]string)
-			}
-			h.NsAccessKey[ns()] = accessKey
-			logrus.Infof("Namespace: %v | IAM User: %v | Msg: Createing New Secrets", ns(), iamUserName)
+			// store the AccessKey as a string b64-encoded in each Ns CR
+			objectStore.Status.AccessKey = base64.StdEncoding.EncodeToString([]byte(accessKey))
+
+			logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Createing New Secrets", ns(), iamUserName)
 			sdk.Create(
 				createAwsSecret(
 					secretName, ns(),
 					metdataLabels,
-					[]byte(base64.StdEncoding.EncodeToString([]byte(accessKey))),
-					[]byte(base64.StdEncoding.EncodeToString([]byte(secretKey))),
+					accessKey,
+					secretKey,
 				),
 			)
 		}
@@ -101,17 +99,12 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	}
 
 	if event.Deleted {
-		if _, exists := h.NsAccessKey[ns()]; exists {
-			err := DeleteIamUser(iamUserName, ns(), h.NsAccessKey[ns()], iamClient)
-			if err != nil {
-				logrus.Errorf("ERROR! ", err)
-			}
-			delete(h.NsAccessKey, ns())
-		} else {
-			logrus.Errorf("ERROR ERROR ERROR !!! The ns %v accessKey for IAM user does not exist in operator's memory... check if user %v exists in IAM... Skipping deletion of IAM user.", ns(), iamUserName)
-		}
-
 		DeleteBucket(bucket, region, ns(), s3Client)
+		decodedAccessKey, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
+		err := DeleteIamUser(iamUserName, ns(), accessPolicy, fmt.Sprintf("%s", decodedAccessKey), iamClient)
+		if err != nil {
+			logrus.Errorf("ERROR! ", err)
+		}
 	}
 
 	return nil
@@ -136,7 +129,7 @@ func createExternalService(name, ns, endpoint string, labels map[string]string) 
 	return s
 }
 
-func createAwsSecret(name, namespace string, labels map[string]string, accessID, secret []byte) *v1.Secret {
+func createAwsSecret(name, namespace string, labels map[string]string, accessID, secret string) *v1.Secret {
 	return &v1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
@@ -149,8 +142,8 @@ func createAwsSecret(name, namespace string, labels map[string]string, accessID,
 		},
 		Type: v1.SecretType("Opaque"),
 		Data: map[string][]byte{
-			"AWS_SECRET": secret,
-			"AWS_ACCESS": accessID,
+			"ACCESS_KEY": []byte(accessID),
+			"SECRET_KEY": []byte(secret),
 		},
 	}
 }
