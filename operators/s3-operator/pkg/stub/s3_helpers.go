@@ -7,151 +7,88 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-func CreateIAMWithKeys(name, region, readWritePolicyArn, ns string, iamClient *iam.IAM) (string, string) {
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Creating new user", ns, name)
-	_, err := iamClient.CreateUser(&iam.CreateUserInput{
-		UserName: aws.String(name),
-	})
-	_, err = iamClient.AttachUserPolicy(&iam.AttachUserPolicyInput{
-		PolicyArn: aws.String(readWritePolicyArn),
-		UserName:  aws.String(name),
-	})
-	var accessKeyOutput *iam.CreateAccessKeyOutput
-	accessKeyOutput, err = iamClient.CreateAccessKey(&iam.CreateAccessKeyInput{
-		UserName: aws.String(name),
-	})
-	if err != nil {
-		logrus.Error(err)
-	}
-	accessKey := *accessKeyOutput.AccessKey.AccessKeyId
-	secretKey := *accessKeyOutput.AccessKey.SecretAccessKey
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Created new user successfully", ns, name)
-	return accessKey, secretKey
+type S3Input struct {
+	S3Svc                         *s3.S3
+	BucketName, Region, Namespace string
+	BucketTags                    map[string]string
 }
 
-func DeleteIamUser(name, ns, readWritePolicyArn string, accessKeyId string, iamClient *iam.IAM) error {
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleting user", ns, name)
-
-	_, err := iamClient.DetachUserPolicy(&iam.DetachUserPolicyInput{
-		PolicyArn: aws.String(readWritePolicyArn),
-		UserName:  aws.String(name),
-	})
-	_, err = iamClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{
-		AccessKeyId: aws.String(accessKeyId),
-		UserName:    aws.String(name),
-	})
-
-	if err != nil {
-		logrus.Errorf("ERROR! %v", err)
-	}
-
-	_, err = iamClient.DeleteUser(&iam.DeleteUserInput{
-		UserName: aws.String(name),
-	})
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleted user successfully", ns, name)
-	return err
-}
-
-func listBuckets(region string, svc *s3.S3) []string {
-	allBuckets := []string{}
-	result, err := svc.ListBuckets(&s3.ListBucketsInput{})
-	if err != nil {
-		logrus.Errorf("Failed to list buckets", err)
-	}
-	for _, bucket := range result.Buckets {
-		allBuckets = append(allBuckets, aws.StringValue(bucket.Name))
-	}
-	return allBuckets
-}
-
-func BucketExists(bucketName, region string, svc *s3.S3) bool {
-	exists := false
-	availBuckets := listBuckets(region, svc)
-	if sliceContainsString(bucketName, availBuckets) {
-		exists = true
-	}
-	return exists
-}
-
-func sliceContainsString(whichValue string, whichSlice []string) bool {
-	exists := false
-	for _, ele := range whichSlice {
-		if whichValue == ele {
-			exists = true
-			break
-		}
+func (s *S3Input) BucketExists() bool {
+	exists := true
+	_, err := s.S3Svc.GetBucketLocation(&s3.GetBucketLocationInput{Bucket: &s.BucketName})
+	if awserr, ok := err.(awserr.Error); ok && awserr.Code() == s3.ErrCodeNoSuchBucket {
+		exists = false
 	}
 	return exists
 }
 
 // Assumes empty the bucket and then delete it
 // Perhaps this can be parameterized
-func DeleteBucket(bucket, region, ns string, svc *s3.S3) {
+func (s *S3Input) DeleteBucket() {
 
-	if BucketExists(bucket, region, svc) {
-		iter := s3manager.NewDeleteListIterator(svc, &s3.ListObjectsInput{
-			Bucket: aws.String(bucket),
+	if s.BucketExists() {
+		iter := s3manager.NewDeleteListIterator(s.S3Svc, &s3.ListObjectsInput{
+			Bucket: aws.String(s.BucketName),
 		})
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleting all objects ", ns, bucket)
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleting all objects ", s.Namespace, s.BucketName)
 
-		if err := s3manager.NewBatchDeleteWithClient(svc).Delete(aws.BackgroundContext(), iter); err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete objects %v", ns, bucket, err)
+		if err := s3manager.NewBatchDeleteWithClient(s.S3Svc).Delete(aws.BackgroundContext(), iter); err != nil {
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete objects %v", s.Namespace, s.BucketName, err)
 		}
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleted all objects ", ns, bucket)
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleted all objects ", s.Namespace, s.BucketName)
 
-		_, err := svc.DeleteBucket(&s3.DeleteBucketInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete bucket %v", ns, bucket, err)
-		}
-
-		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
-			Bucket: aws.String(bucket),
+		_, err := s.S3Svc.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(s.BucketName),
 		})
 		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while deleting bucket %v", ns, bucket, err)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete bucket %v", s.Namespace, s.BucketName, err)
 		}
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket Deleted ", ns, bucket)
+
+		err = s.S3Svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
+			Bucket: aws.String(s.BucketName),
+		})
+		if err != nil {
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while deleting bucket %v", s.Namespace, s.BucketName, err)
+		}
+		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket Deleted ", s.Namespace, s.BucketName)
 
 	} else {
-		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket does not exist while deleting %v", ns, bucket)
+		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket does not exist while deleting %v", s.Namespace, s.BucketName)
 	}
 }
 
-func CreateBucket(bucketName, region, ns string, tags map[string]string, svc *s3.S3) error {
+func (s *S3Input) CreateBucketIfDoesNotExist() error {
 
-	bucket := bucketName
+	bucket := s.BucketName
 	t := []*s3.Tag{}
-	for k, v := range tags {
+	for k, v := range s.BucketTags {
 		t = append(t, &s3.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 	var err error
 	// Create the S3 Bucket
-	if !BucketExists(bucketName, region, svc) {
-		_, err = svc.CreateBucket(&s3.CreateBucketInput{
+	if !s.BucketExists() {
+		_, err = s.S3Svc.CreateBucket(&s3.CreateBucketInput{
 			Bucket: aws.String(bucket),
 		})
 		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to create bucket %v", ns, bucket, err)
+			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to create bucket %v", s.Namespace, s.BucketName, err)
 		} else {
-			err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
+			err = s.S3Svc.WaitUntilBucketExists(&s3.HeadBucketInput{
 				Bucket: aws.String(bucket),
 			})
 			if err != nil {
-				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error occured while bucket creation %v", ns, bucket, err)
+				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error occured while bucket creation %v", s.Namespace, s.BucketName, err)
 			} else {
-				addTagsToS3Bucket(bucket, t, svc)
-				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket created successfully", ns, bucket)
+				addTagsToS3Bucket(bucket, t, s.S3Svc)
+				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket created successfully", s.Namespace, s.BucketName)
 			}
 		}
 	} else {
-		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket already exists", ns, bucket)
+		logrus.Warnf("Namespace: %v | Bucket: %v | Msg: Bucket already exists", s.Namespace, s.BucketName)
 	}
 	return err
 }
