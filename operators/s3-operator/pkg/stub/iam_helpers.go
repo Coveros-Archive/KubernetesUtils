@@ -1,8 +1,6 @@
 package stub
 
 import (
-	"encoding/base64"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
@@ -52,8 +50,8 @@ func (i *iamUserInput) createUserIfDoesNotExists() {
 		i.accessKeysOutput, err = i.iamClient.CreateAccessKey(&iam.CreateAccessKeyInput{
 			UserName: aws.String(i.username),
 		})
-		i.objectStore.Status.AccessKey = base64.StdEncoding.EncodeToString([]byte(*i.accessKeysOutput.AccessKey.AccessKeyId))
-		i.objectStore.Status.SecretKey = base64.StdEncoding.EncodeToString([]byte(*i.accessKeysOutput.AccessKey.SecretAccessKey))
+		i.objectStore.Status.AccessKey = encodeDecode(*i.accessKeysOutput.AccessKey.AccessKeyId, "encode")
+		i.objectStore.Status.SecretKey = encodeDecode(*i.accessKeysOutput.AccessKey.SecretAccessKey, "encode")
 		err = sdk.Update(i.objectStore)
 		errorCheck(err, func() {
 			logrus.Errorf("ERROR While updating objectStore for Namespace: %v", i.namespace)

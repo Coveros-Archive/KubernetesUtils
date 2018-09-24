@@ -122,9 +122,9 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	if event.Deleted {
 
 		s3Input.deleteBucket()
-		decodedAccessKey, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
+		decodedAccessKey := encodeDecode(objectStore.Status.AccessKey, "decode")
 		if objectStore.Status.AccessKey != "" {
-			iamUser.deleteIamUser(fmt.Sprintf("%s", decodedAccessKey))
+			iamUser.deleteIamUser(decodedAccessKey)
 		} else {
 			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: CR does not have accessKeyId", ns, iamUserName)
 			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: Please delete this user by hand!", ns, iamUserName)
@@ -164,7 +164,6 @@ func getSecret(objectStore *v1alpha1.S3) *v1.Secret {
 
 func secretObjSpec(crObj *v1alpha1.S3) *v1.Secret {
 	o := true
-	// f := false
 	return &v1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
@@ -185,8 +184,8 @@ func secretObjSpec(crObj *v1alpha1.S3) *v1.Secret {
 		},
 		Type: v1.SecretType("Opaque"),
 		Data: map[string][]byte{
-			accessKeyForNewSecret: []byte(fmt.Sprintf("%s", crObj.Status.AccessKey)),
-			secretKeyForNewSecret: []byte(fmt.Sprintf("%s", crObj.Status.SecretKey)),
+			accessKeyForNewSecret: []byte(encodeDecode(crObj.Status.AccessKey, "decode")),
+			secretKeyForNewSecret: []byte(encodeDecode(crObj.Status.SecretKey, "decode")),
 		},
 	}
 }
@@ -195,12 +194,12 @@ func updateSecretIfNeeded(objectStore *v1alpha1.S3) {
 
 	secretObj := getSecret(objectStore)
 	err := sdk.Get(secretObj)
+
 	if !apierrors.IsNotFound(err) && !apierrors.IsForbidden(err) {
-		decodedAccessKeyFromCR, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
-		decodedAccessKeyFromSecret, _ := base64.StdEncoding.DecodeString(fmt.Sprintf("%s", secretObj.Data[accessKeyForNewSecret]))
-		accessKeyIDFromCRStatus := fmt.Sprintf("%s", decodedAccessKeyFromCR)
-		accessKeyIDFromSecret := fmt.Sprintf("%s", decodedAccessKeyFromSecret)
-		if accessKeyIDFromCRStatus != accessKeyIDFromSecret {
+		deocdedAccessKeyFromSecret := fmt.Sprintf("%s", secretObj.Data[accessKeyForNewSecret])
+		decodedAccessKeyFromCR := encodeDecode(objectStore.Status.AccessKey, "decode")
+
+		if deocdedAccessKeyFromSecret != decodedAccessKeyFromCR {
 			logrus.Warnf("Updating secret \"%v\" with new creds for namespace: %v", objectStore.S3Specs.NewUser.SecretName, objectStore.GetNamespace())
 			err = sdk.Update(secretObjSpec(objectStore))
 			errorCheck(err, func() { logrus.Errorf("ERROR updating secrets in namespace %v: %v", objectStore.GetNamespace(), err) })
@@ -215,4 +214,18 @@ func errorCheck(err error, block func()) error {
 		return err
 	}
 	return nil
+}
+
+func encodeDecode(str, action string) string {
+	var finalString string
+	switch action {
+	case "encode":
+		finalString = base64.StdEncoding.EncodeToString([]byte(str))
+		break
+	case "decode":
+		deocdedByte, _ := base64.StdEncoding.DecodeString(str)
+		finalString = fmt.Sprintf("%s", deocdedByte)
+	}
+
+	return finalString
 }
