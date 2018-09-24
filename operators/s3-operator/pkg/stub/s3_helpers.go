@@ -11,15 +11,15 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-type S3Input struct {
-	S3Svc                         *s3.S3
-	BucketName, Region, Namespace string
-	BucketTags                    map[string]string
+type s3Input struct {
+	s3Svc                         *s3.S3
+	bucketName, region, namespace string
+	bucketTags                    map[string]string
 }
 
-func (s *S3Input) BucketExists() bool {
+func (s *s3Input) bucketExists() bool {
 	exists := true
-	_, err := s.S3Svc.GetBucketLocation(&s3.GetBucketLocationInput{Bucket: &s.BucketName})
+	_, err := s.s3Svc.GetBucketLocation(&s3.GetBucketLocationInput{Bucket: &s.bucketName})
 	if awserr, ok := err.(awserr.Error); ok && awserr.Code() == s3.ErrCodeNoSuchBucket {
 		exists = false
 	}
@@ -28,69 +28,63 @@ func (s *S3Input) BucketExists() bool {
 
 // Assumes empty the bucket and then delete it
 // Perhaps this can be parameterized
-func (s *S3Input) DeleteBucket() {
+func (s *s3Input) deleteBucket() {
 
-	if s.BucketExists() {
-		iter := s3manager.NewDeleteListIterator(s.S3Svc, &s3.ListObjectsInput{
-			Bucket: aws.String(s.BucketName),
+	if s.bucketExists() {
+		iter := s3manager.NewDeleteListIterator(s.s3Svc, &s3.ListObjectsInput{
+			Bucket: aws.String(s.bucketName),
 		})
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleting all objects ", s.Namespace, s.BucketName)
+		logrus.Infof("namespace: %v | Bucket: %v | Msg: Deleting all objects ", s.namespace, s.bucketName)
 
-		if err := s3manager.NewBatchDeleteWithClient(s.S3Svc).Delete(aws.BackgroundContext(), iter); err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete objects %v", s.Namespace, s.BucketName, err)
-		}
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Deleted all objects ", s.Namespace, s.BucketName)
-
-		_, err := s.S3Svc.DeleteBucket(&s3.DeleteBucketInput{
-			Bucket: aws.String(s.BucketName),
+		err := s3manager.NewBatchDeleteWithClient(s.s3Svc).Delete(aws.BackgroundContext(), iter)
+		errorCheck(err, func() {
+			logrus.Errorf("namespace: %v | Bucket: %v | Msg: Unable to delete objects %v", s.namespace, s.bucketName, err)
 		})
-		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to delete bucket %v", s.Namespace, s.BucketName, err)
-		}
+		logrus.Infof("namespace: %v | Bucket: %v | Msg: Deleted all objects ", s.namespace, s.bucketName)
 
-		err = s.S3Svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
-			Bucket: aws.String(s.BucketName),
+		_, err = s.s3Svc.DeleteBucket(&s3.DeleteBucketInput{Bucket: aws.String(s.bucketName)})
+		errorCheck(err, func() {
+			logrus.Errorf("namespace: %v | Bucket: %v | Msg: Unable to delete bucket %v", s.namespace, s.bucketName, err)
 		})
-		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error while deleting bucket %v", s.Namespace, s.BucketName, err)
-		}
-		logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket Deleted ", s.Namespace, s.BucketName)
+
+		err = s.s3Svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
+			Bucket: aws.String(s.bucketName),
+		})
+		errorCheck(err, func() {
+			logrus.Errorf("namespace: %v | Bucket: %v | Msg: Error while deleting bucket %v", s.namespace, s.bucketName, err)
+		})
+		logrus.Infof("namespace: %v | Bucket: %v | Msg: Bucket Deleted ", s.namespace, s.bucketName)
 
 	} else {
-		logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Bucket does not exist while deleting %v", s.Namespace, s.BucketName)
+		logrus.Errorf("namespace: %v | Bucket: %v | Msg: Bucket does not exist while deleting %v", s.namespace, s.bucketName)
 	}
 }
 
-func (s *S3Input) CreateBucketIfDoesNotExist() error {
+func (s *s3Input) createBucketIfDoesNotExist() {
 
-	bucket := s.BucketName
+	bucket := s.bucketName
 	t := []*s3.Tag{}
-	for k, v := range s.BucketTags {
+	for k, v := range s.bucketTags {
 		t = append(t, &s3.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 	var err error
 	// Create the S3 Bucket
-	if !s.BucketExists() {
-		_, err = s.S3Svc.CreateBucket(&s3.CreateBucketInput{
-			Bucket: aws.String(bucket),
+	if !s.bucketExists() {
+		_, err = s.s3Svc.CreateBucket(&s3.CreateBucketInput{Bucket: aws.String(bucket)})
+		errorCheck(err, func() {
+			logrus.Errorf("namespace: %v | Bucket: %v | Msg: Unable to create bucket %v", s.namespace, s.bucketName, err)
 		})
-		if err != nil {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Unable to create bucket %v", s.Namespace, s.BucketName, err)
-		} else {
-			err = s.S3Svc.WaitUntilBucketExists(&s3.HeadBucketInput{
-				Bucket: aws.String(bucket),
-			})
-			if err != nil {
-				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Error occured while bucket creation %v", s.Namespace, s.BucketName, err)
-			} else {
-				addTagsToS3Bucket(bucket, t, s.S3Svc)
-				logrus.Infof("Namespace: %v | Bucket: %v | Msg: Bucket created successfully", s.Namespace, s.BucketName)
-			}
-		}
+
+		err = s.s3Svc.WaitUntilBucketExists(&s3.HeadBucketInput{Bucket: aws.String(bucket)})
+		errorCheck(err, func() {
+			logrus.Errorf("namespace: %v | Bucket: %v | Msg: Error occured while bucket creation %v", s.namespace, s.bucketName, err)
+		})
+		addTagsToS3Bucket(bucket, t, s.s3Svc)
+		logrus.Infof("namespace: %v | Bucket: %v | Msg: Bucket created successfully", s.namespace, s.bucketName)
+
 	} else {
-		logrus.Warnf("Namespace: %v | Bucket: %v | Msg: Bucket already exists", s.Namespace, s.BucketName)
+		logrus.Warnf("namespace: %v | Bucket: %v | Msg: Bucket already exists", s.namespace, s.bucketName)
 	}
-	return err
 }
 
 func SyncBucketWith(newBucket, oldBucket, region string, svc *s3.S3) {
@@ -98,7 +92,7 @@ func SyncBucketWith(newBucket, oldBucket, region string, svc *s3.S3) {
 	// cross account? or same account ? or both ( ideal? )
 }
 
-func addTagsToS3Bucket(whichBucket string, tags []*s3.Tag, svc *s3.S3) error {
+func addTagsToS3Bucket(whichBucket string, tags []*s3.Tag, svc *s3.S3) {
 	tagInput := &s3.PutBucketTaggingInput{
 		Bucket: &whichBucket,
 		Tagging: &s3.Tagging{
@@ -117,5 +111,4 @@ func addTagsToS3Bucket(whichBucket string, tags []*s3.Tag, svc *s3.S3) error {
 			fmt.Println(err.Error())
 		}
 	}
-	return err
 }

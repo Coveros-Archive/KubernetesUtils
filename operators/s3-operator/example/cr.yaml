@@ -1,19 +1,19 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: amrit-test-2
+  name: amrit-test-1
 ---
 
 apiVersion: amritgill.alpha.coveros.com/v1alpha1
 kind: S3
 metadata:
   name: s3-bucket
-  namespace: amrit-test-2
+  namespace: amrit-test-1
   labels:
     app: yourAppName
 s3Specs:
   existenceCheckAfterMins: 1
-  bucketName: amrit-gill-test-bucket-2
+  bucketName: amrit-gill-test-bucket-1
   region: us-east-1
   newUserAsSecret:
     accessPolicy: "arn:aws:iam::aws:policy/AdministratorAccess"

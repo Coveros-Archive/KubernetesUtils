@@ -34,13 +34,18 @@ rules:
   - get
   - watch
   - create
+  - delete
+  - update
 - apiGroups:
   - apps
   resources:
   - statefulsets
+  - secrets
   verbs:
   - get
   - create
+  - delete
+  - update
 - apiGroups:
   - amritgill.alpha.coveros.com
   resources:

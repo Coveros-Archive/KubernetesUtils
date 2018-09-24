@@ -12,70 +12,75 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 )
 
-type IamUserInput struct {
-	IAMClient                            *iam.IAM
-	Username, AccessPolicyArn, Namespace string
-	AccessKeysOutput                     *iam.CreateAccessKeyOutput
-	ObjectStore                          *v1alpha1.S3
+type iamUserInput struct {
+	iamClient                            *iam.IAM
+	username, accessPolicyArn, namespace string
+	accessKeysOutput                     *iam.CreateAccessKeyOutput
+	objectStore                          *v1alpha1.S3
 }
 
-func (i *IamUserInput) IamUserExists() bool {
+func (i *iamUserInput) iamUserExists() bool {
 	exists := true
 
-	_, err := i.IAMClient.GetUser(&iam.GetUserInput{
-		UserName: aws.String(i.Username),
+	_, err := i.iamClient.GetUser(&iam.GetUserInput{
+		UserName: aws.String(i.username),
 	})
 	if awserr, ok := err.(awserr.Error); ok && awserr.Code() == iam.ErrCodeNoSuchEntityException {
 		exists = false
 	}
-	logrus.Warnf("Namespace: %v | IAM User: %v | Msg: User exists: %v", i.Namespace, i.Username, exists)
+	logrus.Warnf("Namespace: %v | IAM User: %v | Msg: User exists: %v", i.namespace, i.username, exists)
 
 	return exists
 }
 
-func (i *IamUserInput) CreateUserIfDoesNotExists() error {
+func (i *iamUserInput) createUserIfDoesNotExists() {
 	var err error
 
-	if !i.IamUserExists() {
-		_, err = i.IAMClient.CreateUser(&iam.CreateUserInput{
-			UserName: aws.String(i.Username),
+	if !i.iamUserExists() {
+		_, err = i.iamClient.CreateUser(&iam.CreateUserInput{
+			UserName: aws.String(i.username),
 		})
-		if i.AccessPolicyArn != "" {
-			if _, err := i.IAMClient.AttachUserPolicy(&iam.AttachUserPolicyInput{PolicyArn: aws.String(i.AccessPolicyArn), UserName: aws.String(i.Username)}); err != nil {
-				logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while attaching accessPolicy; %v", i.Namespace, i.Username, err)
-			}
-		} else {
-			logrus.Infof("Namespace: %v | PolicyArn: %v | Msg: Access policy does not exist. Skipping attachment", i.Namespace, i.AccessPolicyArn)
-		}
-		i.AccessKeysOutput, err = i.IAMClient.CreateAccessKey(&iam.CreateAccessKeyInput{
-			UserName: aws.String(i.Username),
-		})
-		i.ObjectStore.Status.AccessKey = base64.StdEncoding.EncodeToString([]byte(*i.AccessKeysOutput.AccessKey.AccessKeyId))
-		i.ObjectStore.Status.SecretKey = base64.StdEncoding.EncodeToString([]byte(*i.AccessKeysOutput.AccessKey.SecretAccessKey))
-		err = sdk.Update(i.ObjectStore)
-		if err != nil {
-			logrus.Errorf("ERROR While updating objectStore for Namespace: %v", i.Namespace)
-		}
-	}
+		if i.accessPolicyArn != "" {
+			_, err := i.iamClient.AttachUserPolicy(&iam.AttachUserPolicyInput{PolicyArn: aws.String(i.accessPolicyArn), UserName: aws.String(i.username)})
+			errorCheck(err, func() {
+				logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while attaching accessPolicy; %v", i.namespace, i.username, err)
+			})
 
-	return err
+		} else {
+			logrus.Infof("Namespace: %v | PolicyArn: %v | Msg: Access policy does not exist. Skipping attachment", i.namespace, i.accessPolicyArn)
+		}
+		i.accessKeysOutput, err = i.iamClient.CreateAccessKey(&iam.CreateAccessKeyInput{
+			UserName: aws.String(i.username),
+		})
+		i.objectStore.Status.AccessKey = base64.StdEncoding.EncodeToString([]byte(*i.accessKeysOutput.AccessKey.AccessKeyId))
+		i.objectStore.Status.SecretKey = base64.StdEncoding.EncodeToString([]byte(*i.accessKeysOutput.AccessKey.SecretAccessKey))
+		err = sdk.Update(i.objectStore)
+		errorCheck(err, func() {
+			logrus.Errorf("ERROR While updating objectStore for Namespace: %v", i.namespace)
+		})
+	}
 }
 
-func (i *IamUserInput) DeleteIamUser(accessKeyFromCr string) {
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleting user", i.Namespace, i.Username)
+func (i *iamUserInput) deleteIamUser(accessKeyFromCr string) {
+	if i.iamUserExists() {
+		logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleting user", i.namespace, i.username)
 
-	if _, err := i.IAMClient.DetachUserPolicy(&iam.DetachUserPolicyInput{PolicyArn: aws.String(i.AccessPolicyArn), UserName: aws.String(i.Username)}); err != nil {
-		logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while detaching accessPolicy; %v", i.Namespace, i.Username, err)
+		_, err := i.iamClient.DetachUserPolicy(&iam.DetachUserPolicyInput{PolicyArn: aws.String(i.accessPolicyArn), UserName: aws.String(i.username)})
+		errorCheck(err, func() {
+			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while detaching accessPolicy; %v", i.namespace, i.username, err)
+		})
+
+		_, err = i.iamClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{AccessKeyId: aws.String(accessKeyFromCr), UserName: aws.String(i.username)})
+		errorCheck(err, func() {
+			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while deleting accessKey; %v", i.namespace, i.username, err)
+		})
+
+		_, err = i.iamClient.DeleteUser(&iam.DeleteUserInput{UserName: aws.String(i.username)})
+		errorCheck(err, func() {
+			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while deleting IAM, %v", i.namespace, i.username, err)
+		})
+
+		logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleted user", i.namespace, i.username)
 	}
-
-	if _, err := i.IAMClient.DeleteAccessKey(&iam.DeleteAccessKeyInput{AccessKeyId: aws.String(accessKeyFromCr), UserName: aws.String(i.Username)}); err != nil {
-		logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while deleting accessKey; %v", i.Namespace, i.Username, err)
-	}
-
-	if _, err := i.IAMClient.DeleteUser(&iam.DeleteUserInput{UserName: aws.String(i.Username)}); err != nil {
-		logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: ERROR while deleting IAM, %v", i.Namespace, i.Username, err)
-	}
-
-	logrus.Infof("Namespace: %v | IAM Username: %v | Msg: Deleted user", i.Namespace, i.Username)
 
 }

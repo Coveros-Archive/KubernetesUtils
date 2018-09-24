@@ -15,8 +15,7 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
-
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,9 +41,15 @@ func NewHandler() sdk.Handler {
 	Instead we fine-grain control how often to check for each CR.complex128
 
 	TODO:
-	if IAM User is re-created, need to update aws-creds secrets
+	if IAM User is re-created, need to update aws-creds secrets (done)
 
 */
+
+const (
+	accessKeyForNewSecret = "ACCESS_KEY"
+	secretKeyForNewSecret = "SECRET_KEY"
+)
+
 type Handler struct {
 }
 
@@ -64,7 +69,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	bucket := objectStore.S3Specs.BucketName
 	region := objectStore.S3Specs.Region
 	accessPolicy := objectStore.S3Specs.NewUser.Policy
-	secretName := objectStore.S3Specs.NewUser.SecretName
+	// secretName := objectStore.S3Specs.NewUser.SecretName
 	iamUserName := ns
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
@@ -73,80 +78,53 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	var err error
 
 	//iamUser inputs
-	iamUser := IamUserInput{
-		IAMClient:       iamClient,
-		Username:        iamUserName,
-		AccessPolicyArn: accessPolicy,
-		Namespace:       ns,
-		ObjectStore:     objectStore,
+	iamUser := iamUserInput{
+		iamClient:       iamClient,
+		username:        iamUserName,
+		accessPolicyArn: accessPolicy,
+		namespace:       ns,
+		objectStore:     objectStore,
 	}
 
 	// s3 inputs
-	s3Input := S3Input{
-		S3Svc:      s3Client,
-		BucketName: bucket,
-		BucketTags: metdataLabels,
-		Region:     region,
-		Namespace:  ns,
+	s3Input := s3Input{
+		s3Svc:      s3Client,
+		bucketName: bucket,
+		bucketTags: metdataLabels,
+		region:     region,
+		namespace:  ns,
 	}
 	timeNullCheckVal := *new(time.Time)
 	os.Setenv("AWS_REGION", region)
 	timeDiffSinceLastCheck := int(time.Now().Sub(objectStore.Status.TimeUpdated).Minutes())
 
 	// check initial cr status
-	if objectStore.Status.TimeUpdated == timeNullCheckVal && iamUser.IamUserExists() {
+	if objectStore.Status.TimeUpdated == timeNullCheckVal && iamUser.iamUserExists() {
 		logrus.Errorf("IAM User - %v - already exists at initial run.. Cannot continue until user is deleted for NS: %v", iamUserName, ns)
 	} else if (objectStore.Status.TimeUpdated == timeNullCheckVal) || (objectStore.Status.Deployed && timeDiffSinceLastCheck >= objectStore.S3Specs.ExistenceCheckAfterMins) {
 
 		// create IAM user if it does not exists and get accessKey
-		err = iamUser.CreateUserIfDoesNotExists()
-		if err != nil {
-			logrus.Infof("CreateIfUserDoesNotExists ERROR: %v", err)
-		}
-
+		iamUser.createUserIfDoesNotExists()
 		// Create Bucket if it does not exist
-		err = s3Input.CreateBucketIfDoesNotExist()
-		if err != nil {
-			logrus.Infof("CreateBucketIfDoesNotExist ERROR: %v", err)
-		}
+		s3Input.createBucketIfDoesNotExist()
 
 		objectStore.Status.Deployed = true
 		objectStore.Status.TimeUpdated = time.Now()
 		err = sdk.Update(objectStore)
-		if err != nil {
+		errorCheck(err, func() {
 			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update CR status %v", ns, bucket, err)
-		}
+		})
 
 	}
 
-	// create secret -- this will be picked after resync period for each CR deployed in a namespace
-	decodedAccessKeys, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
-	decodedSecretKey, _ := base64.StdEncoding.DecodeString(objectStore.Status.SecretKey)
-	err = sdk.Create(
-		createAwsSecret(
-			secretName, ns,
-			metdataLabels,
-			fmt.Sprintf("%s", decodedAccessKeys),
-			fmt.Sprintf("%s", decodedSecretKey),
-			objectStore,
-		),
-	)
-
-	if err != nil && !errors.IsAlreadyExists(err) && !errors.IsForbidden(err) {
-		logrus.Errorf("Failed to create Aws Secret : %v", err)
-	}
+	deployIAMSecret(objectStore, metdataLabels)
 
 	if event.Deleted {
-		logrus.Infof("Deleting %v secret from namespace: %v", secretName, ns)
-		sdk.Delete(getSecret(ns, secretName))
-		s3Input.DeleteBucket()
-		// get accessKey from Cr instead of relying on a pointer
-		decodedAccessKey, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
 
+		s3Input.deleteBucket()
+		decodedAccessKey, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
 		if objectStore.Status.AccessKey != "" {
-			if iamUser.IamUserExists() {
-				iamUser.DeleteIamUser(fmt.Sprintf("%s", decodedAccessKey))
-			}
+			iamUser.deleteIamUser(fmt.Sprintf("%s", decodedAccessKey))
 		} else {
 			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: CR does not have accessKeyId", ns, iamUserName)
 			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: Please delete this user by hand!", ns, iamUserName)
@@ -154,24 +132,37 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 	}
 
-	return err
+	return nil
 
 }
 
-func getSecret(namespace, name string) *v1.Secret {
+func deployIAMSecret(objectStore *v1alpha1.S3, metdataLabels map[string]string) {
+	// create secret -- this will be picked after resync period for each CR deployed in a namespace
+
+	defer updateSecretIfNeeded(objectStore)
+
+	err := sdk.Create(secretObjSpec(objectStore))
+
+	if err != nil && !apierrors.IsAlreadyExists(err) && !apierrors.IsForbidden(err) {
+		logrus.Errorf("Failed to create Aws Secret : %v", err)
+	}
+
+}
+
+func getSecret(objectStore *v1alpha1.S3) *v1.Secret {
 	return &v1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      objectStore.S3Specs.NewUser.SecretName,
+			Namespace: objectStore.GetNamespace(),
 		},
 	}
 }
 
-func createAwsSecret(name, namespace string, labels map[string]string, accessID, secret string, crObj *v1alpha1.S3) *v1.Secret {
+func secretObjSpec(crObj *v1alpha1.S3) *v1.Secret {
 	o := true
 	// f := false
 	return &v1.Secret{
@@ -180,9 +171,9 @@ func createAwsSecret(name, namespace string, labels map[string]string, accessID,
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:      crObj.S3Specs.NewUser.SecretName,
+			Namespace: crObj.GetNamespace(),
+			Labels:    crObj.ObjectMeta.GetLabels(),
 			OwnerReferences: []metav1.OwnerReference{{
 				Name:               crObj.GetName(),
 				APIVersion:         crObj.APIVersion,
@@ -194,8 +185,34 @@ func createAwsSecret(name, namespace string, labels map[string]string, accessID,
 		},
 		Type: v1.SecretType("Opaque"),
 		Data: map[string][]byte{
-			"ACCESS_KEY": []byte(accessID),
-			"SECRET_KEY": []byte(secret),
+			accessKeyForNewSecret: []byte(fmt.Sprintf("%s", crObj.Status.AccessKey)),
+			secretKeyForNewSecret: []byte(fmt.Sprintf("%s", crObj.Status.SecretKey)),
 		},
 	}
+}
+
+func updateSecretIfNeeded(objectStore *v1alpha1.S3) {
+
+	secretObj := getSecret(objectStore)
+	err := sdk.Get(secretObj)
+	if !apierrors.IsNotFound(err) && !apierrors.IsForbidden(err) {
+		decodedAccessKeyFromCR, _ := base64.StdEncoding.DecodeString(objectStore.Status.AccessKey)
+		decodedAccessKeyFromSecret, _ := base64.StdEncoding.DecodeString(fmt.Sprintf("%s", secretObj.Data[accessKeyForNewSecret]))
+		accessKeyIDFromCRStatus := fmt.Sprintf("%s", decodedAccessKeyFromCR)
+		accessKeyIDFromSecret := fmt.Sprintf("%s", decodedAccessKeyFromSecret)
+		if accessKeyIDFromCRStatus != accessKeyIDFromSecret {
+			logrus.Warnf("Updating secret \"%v\" with new creds for namespace: %v", objectStore.S3Specs.NewUser.SecretName, objectStore.GetNamespace())
+			err = sdk.Update(secretObjSpec(objectStore))
+			errorCheck(err, func() { logrus.Errorf("ERROR updating secrets in namespace %v: %v", objectStore.GetNamespace(), err) })
+		}
+	}
+
+}
+
+func errorCheck(err error, block func()) error {
+	if err != nil {
+		block()
+		return err
+	}
+	return nil
 }
