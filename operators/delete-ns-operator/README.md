@@ -1,4 +1,6 @@
 ## Delete a kubernetes namespace and associated Helm Release ( if exists ) thats older than some hours
+  - This operator is checking each namespace and its age. If some namespace is olderThan some hours, it must mbe deleted. 
+  - This operator also assumes to delete 2 helm releases for that namespace; namespace and namespace-defaultHelmSuffix ( if they exist ).
 ---
 
 ### Deploying to cluster
@@ -9,6 +11,7 @@
 ----
 ### Note:
   - By default this operator will poll for namespaces every 30 seconds, but can be changed.
+
 
 #### Want to change how often to poll? 
   - If the operator is already deployed ( This will delete the existing pod in the deployment and create a new one );
