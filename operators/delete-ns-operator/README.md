@@ -1,3 +1,5 @@
+### Delete a kubernetes namespace and associated Helm Release ( if exists ) thats older than some hours
+
 # Deploying to cluster
   ```
   kubectl apply -f example/operator.yaml
