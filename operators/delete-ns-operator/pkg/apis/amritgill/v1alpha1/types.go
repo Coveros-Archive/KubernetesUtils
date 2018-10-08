@@ -24,6 +24,8 @@ type DeleteNs struct {
 type DeleteNsSpec struct {
 	OlderThan           int                 `json:"olderThan"`
 	DryRun              bool                `json:"dryRun"`
+	DefaultHelmSuffix   string              `json:"defaultHelmSuffix"`
+	TillerNamespace     string              `json:"tillerNamespace"`
 	SaveIfAnnotationHas SaveIfAnnotationHas `json:"saveIfAnnotationHas"`
 }
 type SaveIfAnnotationHas struct {

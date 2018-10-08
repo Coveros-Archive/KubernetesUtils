@@ -1,11 +1,13 @@
 apiVersion: "amritgill.alpha.coveros.com/v1alpha1"
 kind: "DeleteNs"
 metadata:
-  name: "delete-ns"
+  name: "delete-ns-with-helm"
   namespace: ops
 spec:
+  defaultHelmSuffix: "-yourHelmReleaseSuffix"
+  tillerNamespace: "kube-system"
   saveIfAnnotationHas:
     key: permanent
     value: "true"
-  olderThan: 72
+  olderThan: 0
   dryRun: true
