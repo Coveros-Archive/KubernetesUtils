@@ -2,21 +2,13 @@ package stub
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/agill17/s3-operator/pkg/apis/amritgill/v1alpha1"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 	"github.com/sirupsen/logrus"
-	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewHandler() sdk.Handler {
@@ -38,39 +30,24 @@ func NewHandler() sdk.Handler {
 
 	This way if bucket / IAM user gets deleted, the operator is able to auto-create the services again.
 	However the check will be not dont every RESYNC_PERIOD, this will apply globally.
-	Instead we fine-grain control how often to check for each CR.complex128
+	Instead we fine-grain control how often to check for each CR.
 
 	TODO:
 	if IAM User is re-created, need to update aws-creds secrets (done)
-
+	copy contents from an existing bucket to new bucket (done)
 */
 
-const (
-	accessKeyForNewSecret = "ACCESS_KEY"
-	secretKeyForNewSecret = "SECRET_KEY"
-)
-
 type Handler struct {
-}
-
-func getSvcs(region string) (*s3.S3, *iam.IAM) {
-	sess, _ := session.NewSession(&aws.Config{
-		Region: aws.String(region)},
-	)
-	s3Client := s3.New(sess)
-	iamClient := iam.New(sess)
-	return s3Client, iamClient
 }
 
 func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	objectStore := event.Object.(*v1alpha1.S3)
 	ns := objectStore.GetNamespace()
-	s3Client, iamClient := getSvcs(objectStore.S3Specs.Region)
+	existenceCheck, region, iamUsername, k8sSecretName, syncFromRegion := getDefaults(objectStore)
+	s3Client, iamClient := getS3Client(region), getIamClient(region)
 	bucket := objectStore.S3Specs.BucketName
-	region := objectStore.S3Specs.Region
+	syncFromBucket := objectStore.S3Specs.SyncWithBucket.BucketName
 	accessPolicy := objectStore.S3Specs.NewUser.Policy
-	// secretName := objectStore.S3Specs.NewUser.SecretName
-	iamUserName := ns
 	metdataLabels := objectStore.ObjectMeta.GetLabels()
 	if _, exists := metdataLabels["namespace"]; !exists {
 		metdataLabels["namespace"] = ns
@@ -80,7 +57,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	//iamUser inputs
 	iamUser := iamUserInput{
 		iamClient:       iamClient,
-		username:        iamUserName,
+		username:        iamUsername,
 		accessPolicyArn: accessPolicy,
 		namespace:       ns,
 		objectStore:     objectStore,
@@ -88,58 +65,62 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 	// s3 inputs
 	s3Input := s3Input{
-		s3Svc:      s3Client,
-		bucketName: bucket,
-		bucketTags: metdataLabels,
-		region:     region,
-		namespace:  ns,
+		s3Svc:          s3Client,
+		bucketName:     bucket,
+		bucketTags:     metdataLabels,
+		region:         region,
+		namespace:      ns,
+		syncFromBucket: syncFromBucket,
+		syncFromRegion: syncFromRegion,
 	}
 	timeNullCheckVal := *new(time.Time)
-	os.Setenv("AWS_REGION", region)
 	timeDiffSinceLastCheck := int(time.Now().Sub(objectStore.Status.TimeUpdated).Minutes())
 
 	// check initial cr status
-	if objectStore.Status.TimeUpdated == timeNullCheckVal && iamUser.iamUserExists() {
-		logrus.Errorf("IAM User - %v - already exists at initial run.. Cannot continue until user is deleted for NS: %v", iamUserName, ns)
-	} else if (objectStore.Status.TimeUpdated == timeNullCheckVal) || (objectStore.Status.Deployed && timeDiffSinceLastCheck >= objectStore.S3Specs.ExistenceCheckAfterMins) {
+	if objectStore.Status.TimeUpdated == timeNullCheckVal && iamUser.iamUserExists() && objectStore.Status.AccessKey == "" {
+		logrus.Errorf("IAM User - %v - already exists at initial run.. Cannot continue until user is deleted for NS: %v", iamUsername, ns)
+	} else if (objectStore.Status.TimeUpdated == timeNullCheckVal) || (objectStore.Status.Deployed && timeDiffSinceLastCheck >= existenceCheck) {
 
 		// create IAM user if it does not exists and get accessKey
 		iamUser.createUserIfDoesNotExists()
-		// Create Bucket if it does not exist
-		s3Input.createBucketIfDoesNotExist()
 
-		objectStore.Status.Deployed = true
-		objectStore.Status.TimeUpdated = time.Now()
-		err = sdk.Update(objectStore)
-		errorCheck(err, func() {
-			logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update CR status %v", ns, bucket, err)
-		})
+		// Create Bucket if it does not exist
+		err = s3Input.createBucketIfDoesNotExist()
+		if err == nil {
+			objectStore.Status.Deployed = true
+			objectStore.Status.TimeUpdated = time.Now()
+			err = sdk.Update(objectStore)
+			errorCheck(err, func() {
+				logrus.Errorf("Namespace: %v | Bucket: %v | Msg: Failed to update CR status %v", ns, bucket, err)
+			})
+		}
 
 	}
 
-	deployIAMSecret(objectStore, metdataLabels)
-
+	deployIAMSecret(objectStore, metdataLabels, k8sSecretName)
 	if event.Deleted {
-
-		s3Input.deleteBucket()
-		decodedAccessKey := encodeDecode(objectStore.Status.AccessKey, "decode")
-		if objectStore.Status.AccessKey != "" {
-			iamUser.deleteIamUser(decodedAccessKey)
-		} else {
-			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: CR does not have accessKeyId", ns, iamUserName)
-			logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: Please delete this user by hand!", ns, iamUserName)
-		}
-
+		cleanUp(s3Input, objectStore, iamUser)
 	}
 
 	return nil
 
 }
 
-func deployIAMSecret(objectStore *v1alpha1.S3, metdataLabels map[string]string) {
+func cleanUp(s3Input s3Input, cr *v1alpha1.S3, iamUser iamUserInput) {
+	s3Input.deleteBucket()
+	if cr.Status.AccessKey != "" {
+		decodedAccessKey := encodeDecode(cr.Status.AccessKey, "decode")
+		iamUser.deleteIamUser(decodedAccessKey)
+	} else {
+		logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: CR does not have accessKeyId", cr.GetNamespace(), cr.S3Specs.NewUser.Name)
+		logrus.Errorf("Namespace: %v | IAM Username: %v | Msg: Please delete this user by hand!", cr.GetNamespace(), cr.S3Specs.NewUser.Name)
+	}
+}
+
+func deployIAMSecret(objectStore *v1alpha1.S3, metdataLabels map[string]string, secretName string) {
 	// create secret -- this will be picked after resync period for each CR deployed in a namespace
 
-	defer updateSecretIfNeeded(objectStore)
+	defer updateSecretIfNeeded(objectStore, secretName)
 
 	err := sdk.Create(secretObjSpec(objectStore))
 
@@ -149,50 +130,9 @@ func deployIAMSecret(objectStore *v1alpha1.S3, metdataLabels map[string]string) 
 
 }
 
-func getSecret(objectStore *v1alpha1.S3) *v1.Secret {
-	return &v1.Secret{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Secret",
-			APIVersion: "v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectStore.S3Specs.NewUser.SecretName,
-			Namespace: objectStore.GetNamespace(),
-		},
-	}
-}
+func updateSecretIfNeeded(objectStore *v1alpha1.S3, secretName string) {
 
-func secretObjSpec(crObj *v1alpha1.S3) *v1.Secret {
-	o := true
-	return &v1.Secret{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Secret",
-			APIVersion: "v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      crObj.S3Specs.NewUser.SecretName,
-			Namespace: crObj.GetNamespace(),
-			Labels:    crObj.ObjectMeta.GetLabels(),
-			OwnerReferences: []metav1.OwnerReference{{
-				Name:               crObj.GetName(),
-				APIVersion:         crObj.APIVersion,
-				Kind:               crObj.Kind,
-				UID:                crObj.GetUID(),
-				BlockOwnerDeletion: &o,
-				Controller:         &o,
-			}},
-		},
-		Type: v1.SecretType("Opaque"),
-		Data: map[string][]byte{
-			accessKeyForNewSecret: []byte(encodeDecode(crObj.Status.AccessKey, "decode")),
-			secretKeyForNewSecret: []byte(encodeDecode(crObj.Status.SecretKey, "decode")),
-		},
-	}
-}
-
-func updateSecretIfNeeded(objectStore *v1alpha1.S3) {
-
-	secretObj := getSecret(objectStore)
+	secretObj := getSecret(objectStore, secretName)
 	err := sdk.Get(secretObj)
 
 	if !apierrors.IsNotFound(err) && !apierrors.IsForbidden(err) {
@@ -206,26 +146,4 @@ func updateSecretIfNeeded(objectStore *v1alpha1.S3) {
 		}
 	}
 
-}
-
-func errorCheck(err error, block func()) error {
-	if err != nil {
-		block()
-		return err
-	}
-	return nil
-}
-
-func encodeDecode(str, action string) string {
-	var finalString string
-	switch action {
-	case "encode":
-		finalString = base64.StdEncoding.EncodeToString([]byte(str))
-		break
-	case "decode":
-		deocdedByte, _ := base64.StdEncoding.DecodeString(str)
-		finalString = fmt.Sprintf("%s", deocdedByte)
-	}
-
-	return finalString
 }

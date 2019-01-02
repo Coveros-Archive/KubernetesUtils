@@ -25,13 +25,20 @@ type S3 struct {
 }
 
 type S3BucketSpecs struct {
-	ExistenceCheckAfterMins int     `json:"existenceCheckAfterMins"`
-	BucketName              string  `json:"bucketName"`
-	Region                  string  `json:"region"`
-	NewUser                 IamUser `json:"newUserAsSecret"`
+	ExistenceCheckAfterMins int            `json:"existenceCheckAfterMins"`
+	BucketName              string         `json:"bucketName"`
+	Region                  string         `json:"region"`
+	NewUser                 IamUser        `json:"newUserAsSecret"`
+	SyncWithBucket          SyncWithBucket `json:"syncWith"`
+}
+
+type SyncWithBucket struct {
+	BucketName string `json:"bucketName"`
+	Region     string `json:"region"`
 }
 
 type IamUser struct {
+	Name       string `json:"newUserName"`
 	Policy     string `json:"accessPolicy"`
 	SecretName string `json:"secretName"`
 }

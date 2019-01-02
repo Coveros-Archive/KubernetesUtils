@@ -91,7 +91,7 @@ spec:
       serviceAccountName: s3-operator
       containers:
         - name: s3-operator
-          image: agill17/s3-operator
+          image: agill17/s3-operator:v1
           ports:
           - containerPort: 60000
             name: metrics

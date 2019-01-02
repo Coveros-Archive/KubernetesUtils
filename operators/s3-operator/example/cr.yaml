@@ -1,20 +1,38 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: amrit-test-1
+  name: amrit-test-2
 ---
 
 apiVersion: amritgill.alpha.coveros.com/v1alpha1
 kind: S3
 metadata:
   name: s3-bucket
-  namespace: amrit-test-1
+  namespace: amrit-test-2
   labels:
+    ## used for tagging buckets, be default a namespace tag is added
     app: yourAppName
 s3Specs:
+  ## how often to check if aws resources ( iam + s3 ) exists
+  ## optional -- defaults to 1 min
   existenceCheckAfterMins: 1
-  bucketName: amrit-gill-test-bucket-1
-  region: us-east-1
+  ## the name of your bucket
+  bucketName: amrit-gill-test-bucket-134
+  ## the region in which to create the new bucket in
+  ## optional  -- defaults to us-east-1
+  region: us-east-2
+  ## sync all files/dirs from another bucket in the same account -- optional
+  syncWith:
+    ## the name of the bucket to copy objects from
+    bucketName: amrit-test-123
+    ## the region where this bucket was created -- optional -- defaults to us-east-1
+    region: us-east-1
+  ## create a new IAM user with programmatic access so that your deployments can reference these creds for s3 access
   newUserAsSecret:
-    accessPolicy: "arn:aws:iam::aws:policy/AdministratorAccess"
-    secretName: aws-creds
+    ## the new iam username (optional -- defaults to namespace name)
+    newUserName: amrit-test-username2
+    ## the policy to assign to this new user 
+    accessPolicy: "arn:aws:iam::aws:policy/AdministratorAccess" 
+    ## the secret object name to create, this name can be referenced as a secret for your deployments 
+    ## optional -- defaults to s3-creds
+    secretName: aws-creds 
